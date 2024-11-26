@@ -34,18 +34,18 @@ def create_model():
 
     # Constraints
     # Grinding capacity
-    model.con1_2 = Constraint(expr=
+    model.grinding_capacity = Constraint(expr=
                               processing[processes[0]][products[0]] * model.x1 + 
                               processing[processes[0]][products[1]] * model.x2 + 
                               processing[processes[0]][products[3]] * model.x4 + 
                               processing[processes[0]][products[4]] * model.x5 <= maximum_capacities[processes[0]])
     # Drilling capacity
-    model.con1_3 = Constraint(expr=
+    model.drilling_capacity = Constraint(expr=
                               processing[processes[1]][products[0]] * model.x1 + 
                               processing[processes[1]][products[1]] * model.x2 + 
                               processing[processes[1]][products[2]] * model.x3 <= maximum_capacities[processes[1]])
     # Manpower capacity
-    model.con1_4 = Constraint(expr=
+    model.manpower_capacity = Constraint(expr=
                               processing[processes[2]][products[0]] * model.x1 + 
                               processing[processes[2]][products[1]] * model.x2 + 
                               processing[processes[2]][products[2]] * model.x3 + 
@@ -127,7 +127,8 @@ if __name__ == "__main__":
         dual_model = create_dual_model()
         solution_dual = solver.solve(dual_model)
 
-        print(f"objective value = {solution_dual["objective_value"]}") # 10,920
+        print(f"objective value = {solution_dual["objective_value"]}") # 10,920, the same value of the primal model(duality theorem)
+        # Dual variables, Shadow Prices
         print(f"y1 = {solution_dual["y1"]:.2f}") # 6.25
         print(f"y2 = {solution_dual["y2"]:.2f}") # 0
         print(f"y3 = {solution_dual["y3"]:.2f}") # 23.75
@@ -136,11 +137,12 @@ if __name__ == "__main__":
         dual_model.y1 = solution_dual["y1"]
         dual_model.y2 = solution_dual["y2"]
         dual_model.y3 = solution_dual["y3"]
-        print(f"PROD 1 cost: {dual_model.con6_11.body()} >= {profits[products[0]]}") # 550 >= 550
-        print(f"PROD 2 cost: {dual_model.con6_12.body()} >= {profits[products[1]]}") # 600 >= 600
-        print(f"PROD 3 cost: {dual_model.con6_13.body()} >= {profits[products[2]]}") # 475 >= 350, negative resultant profit
-        print(f"PROD 4 cost: {dual_model.con6_14.body()} >= {profits[products[3]]}") # 631 >= 400, negative resultant profit
-        print(f"PROD 5 cost: {dual_model.con6_15.body()} >= {profits[products[4]]}") # 568.75 >= 200, negative resultant profit
+        # Reduced Costs
+        print(f"PROD 1 cost: {dual_model.con6_11.body()} >= {profits[products[0]]}, reduced cost: {dual_model.con6_11.body() - profits[products[0]]}") # 550 >= 550
+        print(f"PROD 2 cost: {dual_model.con6_12.body()} >= {profits[products[1]]}, reduced cost: {dual_model.con6_12.body() - profits[products[1]]}") # 600 >= 600
+        print(f"PROD 3 cost: {dual_model.con6_13.body()} >= {profits[products[2]]}, reduced cost: {dual_model.con6_13.body() - profits[products[2]]}") # 475 >= 350, negative resultant profit
+        print(f"PROD 4 cost: {dual_model.con6_14.body()} >= {profits[products[3]]}, reduced cost: {dual_model.con6_14.body() - profits[products[3]]}") # 631 >= 400, negative resultant profit
+        print(f"PROD 5 cost: {dual_model.con6_15.body()} >= {profits[products[4]]}, reduced cost: {dual_model.con6_15.body() - profits[products[4]]}") # 568.75 >= 200, negative resultant profit
 
     except Exception as ex:
         traceback.print_exception(ex)
