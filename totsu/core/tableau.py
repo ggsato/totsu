@@ -421,7 +421,6 @@ class Tableau:
         # Filter out slack, surplus, and artificial variables if desired
         final_solution = {var_name: value for var_name, value in solution.items()
                         if not ('slack' in var_name or 'surplus' in var_name or 'artificial' in var_name)}
-        final_solution['objective_value'] = self.get_current_objective_value()
         return final_solution
 
     def take_snapshot(self, pivot_col=None, pivot_row=None, entering_var_idx=None, leaving_var_idx=None):

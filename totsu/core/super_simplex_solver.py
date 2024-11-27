@@ -65,7 +65,6 @@ class SuperSimplexSolver:
 
         # Extract and store the solution
         solution = self._tableau.extract_solution()
-        self.store_solution_in_model(model, solution)
 
         return solution
     
@@ -101,9 +100,6 @@ class SuperSimplexSolver:
     
     def get_map_index_to_var_name(self):
         return self._tableau.standardizer.index_to_var_name()
-    
-    def store_solution_in_model(self, model, solution):
-        pass
 
     def get_current_objective_value(self):
         return self._tableau.get_current_objective_value()
