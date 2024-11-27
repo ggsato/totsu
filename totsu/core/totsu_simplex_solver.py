@@ -1,9 +1,10 @@
 from pyomo.opt import SolverResults, TerminationCondition, SolverStatus
-# Register the custom solver with Pyomo
 from pyomo.opt import SolverFactory
+from pyomo.core.kernel.component_map import ComponentMap
 from .super_simplex_solver import SuperSimplexSolver, InfeasibleProblemError, UnboundedProblemError, OptimizationError
+from ..utils.model_processor import ModelProcessor
 
-@SolverFactory.register("totsu_simplex_solver", "Pyomo compatible Simplex Solver")
+@SolverFactory.register("totsu", "Pyomo compatible Simplex Solver")
 class TotsuSimplexSolver():
         """
         A custom Pyomo compatible solver that wraps SuperSimplexSolver
@@ -24,10 +25,6 @@ class TotsuSimplexSolver():
             """
             # Create a SolverResults object to store the results
             results = SolverResults()
-            
-            # Ensure the model is ready
-            if not hasattr(model, 'objective'):
-                raise ValueError("The model must have an objective to solve.")
             
             # solve by SuperSimplexSolver
             try:
@@ -53,5 +50,33 @@ class TotsuSimplexSolver():
             return results
         
         def store_solution_in_model(self, model, solution):
-            pass
-        
+            # Store variable values
+            for var_name, value in solution.items():
+                var = model.find_component(var_name)
+                if var is not None:
+                    var.set_value(value)
+                    print(f"{var_name} = {value}")
+                else:
+                    print(f"Variable {var_name} not found in model.")
+
+            # Calculate and store dual variables
+            if hasattr(model, 'dual'):
+                y = self.solver.get_dual_variables()
+                # Get the same Constraint instances
+                constraints = list(ModelProcessor.get_constraints(model))
+                index_to_con = {i: con for i, con in enumerate(constraints)}
+                for i, dual_value in enumerate(y):
+                    con = index_to_con[i]
+                    model.dual[con] = dual_value
+                    print(f"Dual variable for constraint {con.name} = {dual_value}")
+
+            # Calculate and store reduced costs
+            if hasattr(model, 'rc'):
+                reduced_costs = self.solver.get_reduced_costs(y)
+                for var_name, rc_value in reduced_costs.items():
+                    var = model.find_component(var_name)
+                    if var is not None:
+                        model.rc[var] = rc_value
+                        print(f"Reduced cost for variable {var.name} = {rc_value}")
+                    else:
+                        print(f"Variable {var_name} not found in model.")

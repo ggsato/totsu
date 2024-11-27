@@ -444,3 +444,94 @@ class Tableau:
         if self.objective.sense == minimize:
             return -objective_row[-1]  # The last element of the objective row represents -objective_value
         return objective_row[-1]
+
+    def compute_dual_variables(self):
+        """
+        Compute the dual variables y^T = c_B^T * B^{-1}
+        """
+        # Map variable indices to names
+        index_to_var_name = self.standardizer.index_to_var_name()
+        
+        # Extract c_B (coefficients of basic variables in the objective function)
+        c_B = []
+        for idx in self.basis_vars:
+            var_name = index_to_var_name[idx]
+            var = self.get_variable_by_name(var_name)
+            coef = self.get_objective_coefficient(var)
+            c_B.append(coef)
+        c_B = np.array(c_B)
+        
+        # Extract B from the tableau
+        B = self.get_basis_matrix()
+        
+        # Compute B^{-1}
+        B_inv = np.linalg.inv(B)
+        
+        # Compute y^T
+        y = c_B @ B_inv
+        return y
+    
+    def compute_reduced_costs(self, y):
+        """
+        Compute reduced costs for non-basic variables
+        """
+        index_to_var_name = self.standardizer.index_to_var_name()
+        reduced_costs = {}
+        for idx in self.non_basis_vars:
+            var_name = index_to_var_name[idx]
+            var = self.get_variable_by_name(var_name)
+            c_j = self.get_objective_coefficient(var)
+            
+            # Extract A_j
+            A_j = self.get_variable_column_in_constraints(var_name)
+            
+            # Compute reduced cost
+            reduced_cost_j = c_j - y @ A_j
+            reduced_costs[var_name] = reduced_cost_j
+        # Reduced costs of basic variables are zero
+        for idx in self.basis_vars:
+            var_name = index_to_var_name[idx]
+            reduced_costs[var_name] = 0
+        return reduced_costs
+
+    def get_basis_matrix(self):
+        """
+        Extract the basis matrix B from the tableau
+        """
+        num_constraints = len(self.constraints)
+        B = np.zeros((num_constraints, num_constraints))
+        for i, idx in enumerate(self.basis_vars):
+            B[:, i] = self.get_variable_column_in_constraints_by_index(idx)
+        return B
+
+    def get_variable_column_in_constraints_by_index(self, var_idx):
+        """
+        Extract the column of a variable in the constraints by variable index
+        """
+        var_name = self.standardizer.index_to_var_name()[var_idx]
+        return self.get_variable_column_in_constraints(var_name)
+
+    def get_variable_column_in_constraints(self, var_name):
+        """
+        Extract the column of a variable in the constraints
+        """
+        column = []
+        for con in self.constraints:
+            repn = generate_standard_repn(con.body)
+            coef_map = {var.name: coef for var, coef in zip(repn.linear_vars, repn.linear_coefs)}
+            column.append(coef_map.get(var_name, 0.0))
+        return np.array(column)
+
+    def get_objective_coefficient(self, var):
+        """
+        Get the coefficient of the variable in the objective function.
+        """
+        repn = generate_standard_repn(self.objective.expr)
+        # Build a mapping between variable names and coefficients
+        coef_map = {v.name: coef for v, coef in zip(repn.linear_vars, repn.linear_coefs)}
+        return coef_map.get(var.name, 0.0)
+
+    def get_variable_by_name(self, var_name):
+        if not hasattr(self, 'var_name_to_var'):
+            self.var_name_to_var = {var.name: var for var in self.variables}
+        return self.var_name_to_var[var_name]
