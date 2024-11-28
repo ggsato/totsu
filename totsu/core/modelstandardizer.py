@@ -4,6 +4,7 @@ from pyomo.environ import (
 from pyomo.repn import generate_standard_repn
 
 from ..utils.model_processor import ModelProcessor
+from ..utils.logger import totsu_logger
 
 class ModelStandardizer:
     def __init__(self, model):
@@ -23,7 +24,7 @@ class ModelStandardizer:
         if not self.preprocess_model():
             raise ValueError("Model is infeasible during preprocessing.")
         if self.all_variables_fixed():
-            print("All variables are fixed.")
+            totsu_logger.debug("All variables are fixed.")
         else:
             # Convert constraints to standard form
             self.convert_constraints()
@@ -35,7 +36,7 @@ class ModelStandardizer:
         self.original_objective = ModelProcessor.get_active_objective(self.standard_model)
 
         for var in self.variables:
-            print(f"Variable '{var.name}' bounds: [{var.lb}, {var.ub}]")
+            totsu_logger.debug(f"Variable '{var.name}' bounds: [{var.lb}, {var.ub}]")
 
         # Tighten variable bounds based on constraints
         if not self.tighten_variable_bounds():
@@ -45,13 +46,13 @@ class ModelStandardizer:
         for var in self.variables:
             lb, ub = var.bounds
             if lb is not None and ub is not None and lb > ub:
-                print(f"Infeasible variable bounds detected for variable '{var.name}': lower bound ({lb}) > upper bound ({ub})")
+                totsu_logger.debug(f"Infeasible variable bounds detected for variable '{var.name}': lower bound ({lb}) > upper bound ({ub})")
                 return False  # Problem is infeasible due to inconsistent bounds
 
             # Handle fixed variables (lb == ub)
             if lb is not None and ub is not None and abs(lb - ub) <= 1e-8:
                 var.fix(lb)
-                print(f"Variable '{var.name}' is fixed at {lb}")
+                totsu_logger.debug(f"Variable '{var.name}' is fixed at {lb}")
 
         return True
     
@@ -67,10 +68,10 @@ class ModelStandardizer:
             upper_bound = value(con.upper) if con.has_ub() else None
 
             if lower_bound is not None and body_value < lower_bound - 1e-8:
-                print(f"Constraint '{con.name}' violated: {body_value} < {lower_bound}")
+                totsu_logger.debug(f"Constraint '{con.name}' violated: {body_value} < {lower_bound}")
                 return False
             if upper_bound is not None and body_value > upper_bound + 1e-8:
-                print(f"Constraint '{con.name}' violated: {body_value} > {upper_bound}")
+                totsu_logger.debug(f"Constraint '{con.name}' violated: {body_value} > {upper_bound}")
                 return False
 
         # Variable bounds are already checked during variable value assignment
@@ -111,7 +112,7 @@ class ModelStandardizer:
             var.setlb(lb)
             var.setub(ub)
             if lb is not None and ub is not None and lb > ub:
-                print(f"Infeasible variable bounds detected for variable '{var.name}': lower bound ({lb}) > upper bound ({ub})")
+                totsu_logger.debug(f"Infeasible variable bounds detected for variable '{var.name}': lower bound ({lb}) > upper bound ({ub})")
                 return False
         return True
     
@@ -203,7 +204,7 @@ class ModelStandardizer:
         # Create the new equality constraint
         new_expr = expr + artificial_var == rhs
 
-        print(f"handled ge constraint and added {artificial_var}")
+        totsu_logger.debug(f"handled ge constraint and added {artificial_var}")
 
         return Constraint(expr=new_expr), artificial_var
 
@@ -217,7 +218,7 @@ class ModelStandardizer:
         # Create the new equality constraint
         new_expr = expr + slack_var == rhs
 
-        print(f"handled le constraint and added {slack_var}")
+        totsu_logger.debug(f"handled le constraint and added {slack_var}")
 
         return Constraint(expr=new_expr)
 
@@ -236,7 +237,7 @@ class ModelStandardizer:
         # Create the new equality constraint
         new_expr = expr - surplus_var + artificial_var == rhs
 
-        print(f"handled ge constraint and added {surplus_var} and {artificial_var}")
+        totsu_logger.debug(f"handled ge constraint and added {surplus_var} and {artificial_var}")
 
         return Constraint(expr=new_expr), artificial_var
 

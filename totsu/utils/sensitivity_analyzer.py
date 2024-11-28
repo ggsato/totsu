@@ -16,6 +16,7 @@ import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State, ALL
 import threading
+from ..utils.logger import totsu_logger
 
 class SensitivityAnalyzer:
     def __init__(self, model, solver):
@@ -39,7 +40,7 @@ class SensitivityAnalyzer:
         try:
             z_primal, shadow_prices = self.solve_lp(self.model.clone(), {})
         except ValueError as e:
-            print("Primal model is not optimal:", e)
+            totsu_logger.info("Primal model is not optimal:", e)
             return False  # Indicate failure
 
         # Identify significant constraints
@@ -180,7 +181,7 @@ class SensitivityAnalyzer:
         # Iterate over the grid and solve LP at each point
         for idx in np.ndindex(B[0].shape):
             if self.stop_computation:
-                print("Computation stopped by user.")
+                totsu_logger.info("Computation stopped by user.")
                 self.computation_data["completed"] = True
                 return
             rhs_adjustments = {}
@@ -208,7 +209,7 @@ class SensitivityAnalyzer:
                 b_original[constr_name] + allowable_increase
             ]
 
-        print("Computation completed.")
+        totsu_logger.info("Computation completed.")
         self.computation_data["completed"] = True
 
     def compute_ridge_line(self, x_plot_min, x_plot_max, y_plot_min, y_plot_max, num_steps=100, step_size=1.0):
@@ -443,7 +444,7 @@ class SensitivityAnalyzer:
                     )
                     fig.add_trace(line)
                 else:
-                    print(f"No valid range for {x_constr} to plot.")
+                    totsu_logger.info(f"No valid range for {x_constr} to plot.")
 
                 # Plot valid range for y_constr
                 valid_range_y = self.computation_data['valid_ranges'].get(y_constr)
@@ -469,7 +470,7 @@ class SensitivityAnalyzer:
                     )
                     fig.add_trace(line)
                 else:
-                    print(f"No valid range for {y_constr} to plot.")
+                    totsu_logger.info(f"No valid range for {y_constr} to plot.")
 
                 # Optimal point (original capacities)
                 optimal_point = go.Scatter3d(
@@ -545,7 +546,7 @@ class SensitivityAnalyzer:
                         legend=dict(x=0.7, y=0.9),
                     )
                 else:
-                    print(f"No ridge line to plot because {ridge_error}")
+                    totsu_logger.info(f"No ridge line to plot because {ridge_error}")
 
                 return fig
             else:

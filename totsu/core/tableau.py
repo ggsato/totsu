@@ -3,6 +3,7 @@ from pyomo.environ import (
     value, minimize
 )
 from pyomo.repn import generate_standard_repn
+from ..utils.logger import totsu_logger
 
 class Tableau:
     def __init__(self, standardizer):
@@ -89,7 +90,7 @@ class Tableau:
                 self.basis_vars.append(idx)
             else:
                 self.non_basis_vars.append(idx)
-        print(f"initial basis_bars = {self.basis_vars}")
+        totsu_logger.debug(f"initial basis_bars = {self.basis_vars}")
 
     def construct_tableau(self):
         num_constraints = len(self.constraints)
@@ -136,8 +137,8 @@ class Tableau:
         self.history.append(self.take_snapshot())
 
     def print_tableau(self, message):
-        print(f"tableau[{message}]:")
-        print(f"{self.tableau}")
+        totsu_logger.debug(f"tableau[{message}]:")
+        totsu_logger.debug(f"{self.tableau}")
 
     def select_pivot_column(self, phase):
         if phase == 1:
@@ -146,17 +147,17 @@ class Tableau:
             pivot_cols = np.where(objective_row < -1e-8)[0]
             # Exclude columns already in basis_vars
             eligible_cols = [col for col in pivot_cols if col not in self.basis_vars]
-            print(f"eligible cols = {eligible_cols}")
+            totsu_logger.debug(f"eligible cols = {eligible_cols}")
             if not eligible_cols:
-                print(f"No eligible pivot columns found in Phase {phase}.")
+                totsu_logger.debug(f"No eligible pivot columns found in Phase {phase}.")
                 return None  # No eligible columns
             # Bland's Rule: Choose the smallest index among eligible pivot columns
             col = int(min(eligible_cols))
-            #print(f"{col} was selected by select_pivot_column (phase {phase})")
+            #totsu_logger.debug(f"{col} was selected by select_pivot_column (phase {phase})")
             return col
         elif phase == 2:
             col = self.select_pivot_column_phase2()
-            #print(f"{col} was selected by pivot_colmn (phase 2)")
+            #totsu_logger.debug(f"{col} was selected by pivot_colmn (phase 2)")
             return col
         
     def select_pivot_column_phase2(self):
@@ -196,10 +197,10 @@ class Tableau:
             # Now find the pivot rows that match this minimum ratio within the tolerance
             pivot_rows = [i for r, i in ratios if abs(r - min_ratio) <= 1e-8]
         else:
-            print("no row was selected by pivot_row")
+            totsu_logger.debug("no row was selected by pivot_row")
             return None  # Unbounded
         
-        #print(f"{pivot_rows[0]} was selected by pivot_row")
+        #totsu_logger.debug(f"{pivot_rows[0]} was selected by pivot_row")
 
         return pivot_rows[0]  # Choose the first one (Bland's Rule)
 
@@ -241,11 +242,11 @@ class Tableau:
 
         # Debugging output
         index_to_var_name = self.standardizer.index_to_var_name()
-        print(f"Pivoting: Row {pivot_row}, Column {pivot_col}")
-        print(f"Leaving variable: {index_to_var_name[leaving_var_idx]}")
-        print(f"Entering variable: {index_to_var_name[entering_var_idx]}")
-        print(f"After pivot, basis_vars: {[index_to_var_name[idx] for idx in self.basis_vars]} by name, {self.basis_vars} by idx")
-        print(f"Tableau after pivot operation:\n{self.tableau}")
+        totsu_logger.debug(f"Pivoting: Row {pivot_row}, Column {pivot_col}")
+        totsu_logger.debug(f"Leaving variable: {index_to_var_name[leaving_var_idx]}")
+        totsu_logger.debug(f"Entering variable: {index_to_var_name[entering_var_idx]}")
+        totsu_logger.debug(f"After pivot, basis_vars: {[index_to_var_name[idx] for idx in self.basis_vars]} by name, {self.basis_vars} by idx")
+        totsu_logger.debug(f"Tableau after pivot operation:\n{self.tableau}")
 
     def is_optimal(self):
         if self.updated_tableau is None:
@@ -283,7 +284,7 @@ class Tableau:
             if artificial_in_basis:
                 return False  # Artificial variables remain in the basis
 
-            print(f"Is optimal. objective_value = {objective_value}, artificial_values = {artificial_values}")
+            totsu_logger.debug(f"Is optimal. objective_value = {objective_value}, artificial_values = {artificial_values}")
             return True   # Optimality achieved in Phase I
         else:
             # Standard optimality condition for Phase II
@@ -304,7 +305,7 @@ class Tableau:
                     row_idx = self.basis_vars.index(idx)
                     value = self.tableau[row_idx, -1]
                     if abs(value) > 1e-8:
-                        print(f"Infeasible: Artificial variable is positive in basis({self.basis_vars}) at row({row_idx})")
+                        totsu_logger.debug(f"Infeasible: Artificial variable is positive in basis({self.basis_vars}) at row({row_idx})")
                         return False  # Artificial variable is positive in basis
                 else:
                     # Check value of non-basic artificial variable
@@ -313,17 +314,17 @@ class Tableau:
             # Additionally, check that the objective value (sum of artificial variables) is zero
             objective_value = self.tableau[-1, -1]
             if abs(objective_value) > 1e-8:
-                print("Infeasible: Objective value is zero")
+                totsu_logger.debug("Infeasible: Objective value is zero")
                 return False
         else:
             # phase2
             # After Phase 2, check if all RHS values are positive
             if np.any(self.tableau[:-1, -1] < 0):
-                print('Infeasible: Not all RHS values are positive')
+                totsu_logger.debug('Infeasible: Not all RHS values are positive')
                 return False
             
             if not self.check_constraints_satisfied():
-                print("Infeasible: All constraints are not satisfied")
+                totsu_logger.debug("Infeasible: All constraints are not satisfied")
                 return False
 
         return True
@@ -345,10 +346,10 @@ class Tableau:
                 satisfied = lhs_value >= rhs_value
 
             if not satisfied:
-                print(f"Constraint [{con}] is not satisfied by the solution.")
+                totsu_logger.debug(f"Constraint [{con}] is not satisfied by the solution.")
                 return False
 
-        print("All constraints are satisfied.")
+        totsu_logger.debug("All constraints are satisfied.")
         return True
 
     def set_phase2_objective(self):

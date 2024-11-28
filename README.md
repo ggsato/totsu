@@ -13,3 +13,17 @@ At the heart of *totsu* is a meticulously designed `Tableau` class, serving as t
 Where *totsu* truly shines is in its focus on visualization. By leveraging the dual model, it offers users a clear and interactive window into the optimization process. Visualizing dual variables and their direct impact on the objective value creates a straightforward, engaging experience. Coupled with interactive exploration tools, guided tutorials, and sensitivity analysis, *totsu* transforms the Simplex method into an accessible and enlightening journey.
 
 Designed for integration with Pyomo, *totsu* ensures consistency in workflows involving Branch and Bound or dynamic constraint modifications. With its emphasis on educational value, modularity, and innovative design, *totsu* is more than a solver—it's a platform for learning, exploring, and advancing the understanding of convex optimization.
+
+# Visualization
+
+#### Valid Ranges On 3D Objective Value Surface
+
+Valida ranges of the two most siginificant dual variables are shown on the 3D surface of objective values.
+
+![valid ranges](resources/valid_ranges.gif)
+
+#### Ridge Analysis
+
+A ridge line, which could be a valley line in case of minimization problem, is shown as an animcation.
+
+![ridge analysis](resources/ridge_analysis.gif)

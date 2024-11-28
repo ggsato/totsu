@@ -1,6 +1,7 @@
 from .tableau import Tableau
 from .modelstandardizer import ModelStandardizer
 from ..utils.model_processor import ModelProcessor
+from ..utils.logger import totsu_logger
 
 class OptimizationError(Exception):
     """Base class for exceptions in this optimization module."""
@@ -21,7 +22,7 @@ class SuperSimplexSolver:
         self._tableau = None
 
     def solve(self, model):
-        print("Solving using Simplex method...")
+        totsu_logger.debug("Solving using Simplex method...")
 
         # Standardize the model
         try:
@@ -47,7 +48,7 @@ class SuperSimplexSolver:
 
         # Check if feasible
         if not success or not self._tableau.is_feasible():
-            print("Problem is infeasible after Phase I.")
+            totsu_logger.debug("Problem is infeasible after Phase I.")
             raise InfeasibleProblemError("Problem is infeasible after Phase I.")
 
         # Adjust tableau for Phase II
@@ -57,7 +58,7 @@ class SuperSimplexSolver:
         success = self.simplex_iterations(phase=2)
 
         if not success:
-            print("Problem may be unbounded or infeasible in Phase II.")
+            totsu_logger.debug("Problem may be unbounded or infeasible in Phase II.")
             if not self._tableau.is_feasible():
                 raise InfeasibleProblemError("Problem is infeasible after Phase II.")
             else:
@@ -69,7 +70,7 @@ class SuperSimplexSolver:
         return solution
     
     def simplex_iterations(self, phase):
-        print(f"Executing simplex iterations at phase{phase}")
+        totsu_logger.debug(f"Executing simplex iterations at phase{phase}")
         iteration = 0
         while not self._tableau.is_optimal():
             if iteration >= self.max_itr:

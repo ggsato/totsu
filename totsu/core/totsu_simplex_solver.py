@@ -1,8 +1,8 @@
 from pyomo.opt import SolverResults, TerminationCondition, SolverStatus
 from pyomo.opt import SolverFactory
-from pyomo.core.kernel.component_map import ComponentMap
 from .super_simplex_solver import SuperSimplexSolver, InfeasibleProblemError, UnboundedProblemError, OptimizationError
 from ..utils.model_processor import ModelProcessor
+from ..utils.logger import totsu_logger
 
 @SolverFactory.register("totsu", "Pyomo compatible Simplex Solver")
 class TotsuSimplexSolver():
@@ -55,9 +55,9 @@ class TotsuSimplexSolver():
                 var = model.find_component(var_name)
                 if var is not None:
                     var.set_value(value)
-                    print(f"{var_name} = {value}")
+                    totsu_logger.debug(f"{var_name} = {value}")
                 else:
-                    print(f"Variable {var_name} not found in model.")
+                    totsu_logger.debug(f"Variable {var_name} not found in model.")
 
             # Calculate and store dual variables
             if hasattr(model, 'dual'):
@@ -68,7 +68,7 @@ class TotsuSimplexSolver():
                 for i, dual_value in enumerate(y):
                     con = index_to_con[i]
                     model.dual[con] = dual_value
-                    print(f"Dual variable for constraint {con.name} = {dual_value}")
+                    totsu_logger.debug(f"Dual variable for constraint {con.name} = {dual_value}")
 
             # Calculate and store reduced costs
             if hasattr(model, 'rc'):
@@ -77,6 +77,6 @@ class TotsuSimplexSolver():
                     var = model.find_component(var_name)
                     if var is not None:
                         model.rc[var] = rc_value
-                        print(f"Reduced cost for variable {var.name} = {rc_value}")
+                        totsu_logger.debug(f"Reduced cost for variable {var.name} = {rc_value}")
                     else:
-                        print(f"Variable {var_name} not found in model.")
+                        totsu_logger.debug(f"Variable {var_name} not found in model.")

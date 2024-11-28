@@ -4,6 +4,7 @@ from pyomo.repn import generate_standard_repn
 from pyomo.common.collections import ComponentMap
 from pyomo.core.expr.compare import compare_expressions
 import math
+from ..utils.logger import totsu_logger
 
 def compare_coefficient_dicts(coefs1, coefs2, tol=1e-6):
     if set(coefs1.keys()) != set(coefs2.keys()):
@@ -75,20 +76,20 @@ class ModelProcessor:
         constraints = ModelProcessor.get_constraints(model)
         objective = ModelProcessor.get_active_objective(model)
 
-        print(f"Objective: {objective.expr}")
-        print("Variables:")
+        totsu_logger.debug(f"Objective: {objective.expr}")
+        totsu_logger.debug("Variables:")
         for var in variables:
             lb, ub = ModelProcessor.get_bounds(var)
-            print(f" - {var.name}: LB = {lb}, UB = {ub}")
+            totsu_logger.debug(f" - {var.name}: LB = {lb}, UB = {ub}")
 
-        print("Constraints:")
+        totsu_logger.debug("Constraints:")
         for con in constraints:
             lb = con.lower
             ub = con.upper
             body = con.body
             if lb is not None and ub is not None and lb == ub:
                 # Equality constraint
-                print(f" - {con.name}: {body} == {lb}")
+                totsu_logger.debug(f" - {con.name}: {body} == {lb}")
             else:
                 constraint_str = f" - {con.name}: "
                 if lb is not None:
@@ -97,7 +98,7 @@ class ModelProcessor:
                     if lb is not None:
                         constraint_str += ", "
                     constraint_str += f"{body} <= {ub}"
-                print(constraint_str)
+                totsu_logger.debug(constraint_str)
 
     @staticmethod
     def compare_models(model1: ConcreteModel, model2: ConcreteModel) -> List[str]:
@@ -187,11 +188,11 @@ class ModelProcessor:
                                    f"Model 1: LB = {lb1}, UB = {ub1}\nModel 2: LB = {lb2}, UB = {ub2}")
 
         if not differences:
-            print("Models are identical.")
+            totsu_logger.debug("Models are identical.")
         else:
-            print("Differences between models:")
+            totsu_logger.debug("Differences between models:")
             for diff in differences:
-                print(diff)
+                totsu_logger.debug(diff)
 
         return differences
 
