@@ -1,6 +1,7 @@
 from .tableau import Tableau
 from .modelstandardizer import ModelStandardizer
 from ..utils.model_processor import ModelProcessor
+from ..utils.logger import totsu_logger
 
 class OptimizationError(Exception):
     """Base class for exceptions in this optimization module."""
@@ -21,7 +22,7 @@ class SuperSimplexSolver:
         self._tableau = None
 
     def solve(self, model):
-        print("Solving using Simplex method...")
+        totsu_logger.debug("Solving using Simplex method...")
 
         # Standardize the model
         try:
@@ -47,7 +48,7 @@ class SuperSimplexSolver:
 
         # Check if feasible
         if not success or not self._tableau.is_feasible():
-            print("Problem is infeasible after Phase I.")
+            totsu_logger.debug("Problem is infeasible after Phase I.")
             raise InfeasibleProblemError("Problem is infeasible after Phase I.")
 
         # Adjust tableau for Phase II
@@ -57,7 +58,7 @@ class SuperSimplexSolver:
         success = self.simplex_iterations(phase=2)
 
         if not success:
-            print("Problem may be unbounded or infeasible in Phase II.")
+            totsu_logger.debug("Problem may be unbounded or infeasible in Phase II.")
             if not self._tableau.is_feasible():
                 raise InfeasibleProblemError("Problem is infeasible after Phase II.")
             else:
@@ -65,12 +66,11 @@ class SuperSimplexSolver:
 
         # Extract and store the solution
         solution = self._tableau.extract_solution()
-        self.store_solution_in_model(model, solution)
 
         return solution
     
     def simplex_iterations(self, phase):
-        print(f"Executing simplex iterations at phase{phase}")
+        totsu_logger.debug(f"Executing simplex iterations at phase{phase}")
         iteration = 0
         while not self._tableau.is_optimal():
             if iteration >= self.max_itr:
@@ -101,9 +101,6 @@ class SuperSimplexSolver:
     
     def get_map_index_to_var_name(self):
         return self._tableau.standardizer.index_to_var_name()
-    
-    def store_solution_in_model(self, model, solution):
-        pass
 
     def get_current_objective_value(self):
         return self._tableau.get_current_objective_value()
@@ -122,3 +119,21 @@ class SuperSimplexSolver:
     @property
     def tableau(self):
         return self._tableau.tableau.copy()
+    
+    @property
+    def variables(self):
+        return self._tableau.variables
+    
+    @property
+    def constraints(self):
+        return self._tableau.constratints
+    
+    @property
+    def original_constraints(self):
+        return self._tableau.original_constraints
+    
+    def get_dual_variables(self):
+        return self._tableau.compute_dual_variables()
+
+    def get_reduced_costs(self, y):
+        return self._tableau.compute_reduced_costs(y)
