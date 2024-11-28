@@ -5,7 +5,6 @@ from pyomo.environ import (
     Var,
     Objective,
     Constraint,
-    SolverFactory,
     maximize,
     minimize,
     NonNegativeReals,
@@ -19,7 +18,8 @@ from dash.dependencies import Input, Output, State, ALL
 import threading
 
 class SensitivityAnalyzer:
-    def __init__(self, model):
+    def __init__(self, model, solver):
+        self.solver = solver
         self.model = model.clone()
         self.significant_constraints = None
         self.b_original = {}
@@ -78,9 +78,8 @@ class SensitivityAnalyzer:
             model.del_component(model.dual)
         model.dual = Suffix(direction=Suffix.IMPORT)
 
-        # Solve the model using GLPK
-        solver = SolverFactory("glpk")
-        result = solver.solve(model, tee=False)
+        # Solve the model using the given solver
+        result = self.solver.solve(model, tee=False)
 
         # Check solver status
         if (result.solver.status != SolverStatus.ok) or (result.solver.termination_condition != TerminationCondition.optimal):
