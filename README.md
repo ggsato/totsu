@@ -16,6 +16,8 @@ Designed for integration with Pyomo, *totsu* ensures consistency in workflows in
 
 # Visualization
 
+## Sensitivity Analysis
+
 #### Valid Ranges On 3D Objective Value Surface
 
 Valida ranges of the two most siginificant dual variables are shown on the 3D surface of objective values.
