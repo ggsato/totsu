@@ -183,23 +183,24 @@ class TableauVisualizer:
         tableau = snapshot["tableau"]
         pivot_row = snapshot["pivot_row"]
         pivot_col = snapshot["pivot_col"]
-        constraints = snapshot["constraint_names"]
-        ratios = snapshot["ratios"]  # List of (row_index, ratio)
+        basic_var_indices = snapshot['basis_vars']
+        ratios = snapshot["ratios"]  # List of (ratio, row_index)
+
+        # -- Basic Variable Names --
+        basic_var_names = [variables[idx] for idx in basic_var_indices]
 
         # -- Entering Variable Bar Chart Data --
         colors_entering = ['green' if coef >= 0 else 'red' for coef in objective_row]
 
         # -- Leaving Variable Bar Chart Data --
-        # Prepare ratios aligned with constraints
+        # Prepare ratios aligned with basic variables
         ratio_dict = {row_idx: ratio for ratio, row_idx in ratios}
-        aligned_ratios = [ratio_dict.get(i, None) for i in range(len(constraints))]
+        aligned_ratios = [ratio_dict.get(i, None) for i in range(len(basic_var_names))]
 
-        # Reverse constraints and ratios to match the display order
-        constraints_reversed = constraints[::-1]
+        # Reverse data to match display order if necessary
+        basic_var_names_reversed = basic_var_names[::-1]
         aligned_ratios_reversed = aligned_ratios[::-1]
-
-        # Colors for the leaving variable bar chart
-        colors_leaving = ['#1f77b4' if i == pivot_row else '#cccccc' for i in range(len(constraints))]
+        colors_leaving = ['#1f77b4' if i == pivot_row else '#cccccc' for i in range(len(basic_var_names))]
         colors_leaving_reversed = colors_leaving[::-1]
 
         # Create a subplot figure with 2 columns and 2 rows
@@ -247,7 +248,7 @@ class TableauVisualizer:
         fig.add_trace(
             go.Bar(
                 x=aligned_ratios_reversed,
-                y=constraints_reversed,
+                y=basic_var_names_reversed,
                 orientation="h",
                 marker_color=colors_leaving_reversed,
                 name="Minimum Ratios"
@@ -257,12 +258,11 @@ class TableauVisualizer:
 
         # Highlight leaving variable
         if pivot_row is not None:
-            idx_in_reversed = len(constraints) - 1 - pivot_row
-            totsu_logger.debug(f"highlighting leaving variables at [{aligned_ratios_reversed[idx_in_reversed]}, {constraints_reversed[idx_in_reversed]}], idx={idx_in_reversed}")
+            idx_in_reversed = len(basic_var_names) - 1 - pivot_row
             fig.add_trace(
                 go.Scatter(
                     x=[aligned_ratios_reversed[idx_in_reversed]],
-                    y=[constraints_reversed[idx_in_reversed]],
+                    y=[basic_var_names_reversed[idx_in_reversed]],
                     mode="markers+text",
                     marker=dict(size=12, color="red", symbol='diamond'),
                     text=["Leaving Variable"],
@@ -277,7 +277,7 @@ class TableauVisualizer:
             go.Heatmap(
                 z=tableau,
                 x=variables,
-                y=constraints_reversed,
+                y=basic_var_names_reversed,
                 colorscale="Viridis",
                 text=tableau.round(2),
                 hoverinfo="text",
@@ -289,11 +289,11 @@ class TableauVisualizer:
 
         # Highlight the pivot element
         if pivot_row is not None and pivot_col is not None:
-            idx_in_reversed = len(constraints) - 1 - pivot_row
+            idx_in_reversed = len(basic_var_names) - 1 - pivot_row
             fig.add_trace(
                 go.Scatter(
                     x=[variables[pivot_col]],
-                    y=[constraints_reversed[idx_in_reversed]],
+                    y=[basic_var_names_reversed[idx_in_reversed]],
                     mode="markers+text",
                     marker=dict(size=14, color="yellow", symbol='diamond'),
                     text=["Pivot"],
@@ -315,10 +315,10 @@ class TableauVisualizer:
 
         # Update y-axes configurations
         fig.update_yaxes(
-            title_text="Constraints",
+            title_text="Basic Variables",
             type='category',
             categoryorder='array',
-            categoryarray=constraints_reversed,
+            categoryarray=basic_var_names_reversed,
             showticklabels=True,
             row=2, col=1
         )
@@ -326,7 +326,7 @@ class TableauVisualizer:
         fig.update_yaxes(
             type='category',
             categoryorder='array',
-            categoryarray=constraints_reversed,
+            categoryarray=basic_var_names_reversed,
             showticklabels=False,
             row=2, col=2
         )
@@ -336,9 +336,12 @@ class TableauVisualizer:
     def update_explanation(self, snapshot, selected_iteration):
         entering_var_idx = snapshot.get('entering_var_idx')
         pivot_row = snapshot.get('pivot_row')
+        variables = snapshot['variable_names']
+        basic_var_indices = snapshot['basis_vars']
+        basic_var_names = [variables[idx] for idx in basic_var_indices]
 
-        entering_var = snapshot['variable_names'][entering_var_idx] if entering_var_idx is not None else "None"
-        leaving_var = snapshot['constraint_names'][pivot_row] if pivot_row is not None else "None"
+        entering_var = variables[entering_var_idx] if entering_var_idx is not None else "None"
+        leaving_var = basic_var_names[pivot_row] if pivot_row is not None else "None"
 
         explanation = [
             html.H4(f"Iteration {selected_iteration} Explanation:"),
