@@ -26,6 +26,10 @@ class Tableau:
         return self.standardizer.constraints
     
     @property
+    def constraint_names(self):
+        return [con.name for con in self.constraints]
+    
+    @property
     def original_constraints(self):
         return self.standardizer.original_constraints
     
@@ -180,17 +184,7 @@ class Tableau:
 
     def select_pivot_row(self, pivot_col):
         # Apply the minimum ratio test
-        num_constraints = len(self.constraints)
-        ratios = []
-        for i in range(num_constraints):
-            coeff = self.tableau[i, pivot_col]
-            rhs = self.tableau[i, -1]
-            if coeff > 1e-8:
-                ratio = rhs / coeff
-                ratios.append((ratio, i))
-            elif abs(coeff) < 1e-8 and abs(rhs) < 1e-8:
-                # Handle degenerate cases
-                ratios.append((float('inf'), i))
+        ratios = self.compute_ratios(pivot_col, len(self.constraints))
         if ratios:
             # Extract only the ratio values for finding the minimum ratio
             min_ratio = min(r[0] for r in ratios)
@@ -434,9 +428,27 @@ class Tableau:
             "pivot_col": pivot_col,
             "pivot_row": pivot_row,
             "optimality_status": self.is_optimal(),
-            "feasibility_status": self.is_feasible()
+            "feasibility_status": self.is_feasible(),
+            "objective_row": self.tableau[-1, :-1].copy(),  # Coefficients of the objective row
+            "ratios": self.compute_ratios(pivot_col, len(self.constraints)) if pivot_col is not None else [],  # Ratios for the selected pivot column
+            "variable_names": [var.name for var in self.variables],  # Include variable names
+            "constraint_names": self.constraint_names
         }
         return snapshot
+    
+    def compute_ratios(self, pivot_col, num_constraints):
+        ratios = []
+        for i in range(num_constraints):
+            coeff = self.tableau[i, pivot_col]
+            rhs = self.tableau[i, -1]
+            if coeff > 1e-8:
+                ratio = rhs / coeff
+                ratios.append((ratio, i))
+            elif abs(coeff) < 1e-8 and abs(rhs) < 1e-8:
+                # Handle degenerate cases
+                ratios.append((float('inf'), i))
+        totsu_logger.debug(f"computing ratio for {num_constraints} constraints = {ratios}")
+        return ratios
     
     def get_current_objective_value(self):
         # the last row of the tableau represents the objective function

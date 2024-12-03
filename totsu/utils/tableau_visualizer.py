@@ -1,0 +1,357 @@
+import dash
+from dash import Dash, dcc, html, Input, Output, State
+import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from pyomo.environ import SolverFactory
+from ..utils.logger import totsu_logger
+
+class TableauVisualizer:
+    def __init__(self, model, solver):
+        self.model = model
+        self.solver = solver
+        self.history = []
+        self.app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+    def solve_model(self):
+        """Solves the model and stores tableau history for visualization."""
+        try:
+            solution = self.solver.solve(self.model)
+            self.history = self.solver.get_history()
+            self.setup_dash_layout()
+        except Exception as e:
+            totsu_logger.error(f"Error solving model: {e}")
+            raise  # Re-raise the exception after logging
+
+    def show_tableau_visualization(self):
+        """Launches the Dash app for tableau visualization."""
+        self.app.run_server(debug=True)
+
+    def setup_dash_layout(self):
+        """Configures the Dash app layout and callbacks."""
+        self.app.layout = dbc.Container([
+            # Header
+            dbc.Row(
+                dbc.Col(
+                    html.H2("Simplex Tableau Visualization"),
+                    className="text-center my-2"
+                )
+            ),
+            # Iteration Slider, Buttons, and Objective Progress Chart
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Select Iteration:", className="font-weight-bold"),
+                    dbc.InputGroup([
+                        dbc.Button("Previous", id="prev-button", n_clicks=0),
+                        dbc.Button("Next", id="next-button", n_clicks=0),
+                    ], size="sm", className="mb-2"),
+                    dcc.Slider(
+                        id="iteration-slider",
+                        min=0,
+                        max=max(len(self.history) - 1, 0),
+                        step=1,
+                        value=0,
+                        marks=None,
+                        tooltip={"placement": "bottom", "always_visible": True}
+                    ),
+                    dbc.Button(
+                        "Toggle Explanation",
+                        id="explanation-toggle",
+                        color="primary",
+                        size="sm",
+                        className="mt-2",
+                        n_clicks=0
+                    ),
+                    dbc.Collapse(
+                        html.Div(id="iteration-explanation"),
+                        id='explanation-collapse',
+                        is_open=False
+                    )
+                ], width=4),
+                dbc.Col(
+                    dcc.Graph(id="objective-progress-chart", config={'displayModeBar': False}, style={'height': '250px'}),
+                    width=8
+                )
+            ], align="center", className="my-2"),
+            # Combined Figure with All Components
+            dbc.Row(
+                dbc.Col(
+                    dcc.Graph(id="combined-figure", config={'displayModeBar': False}, style={'height': '600px'}),
+                    width=12
+                ),
+                className="my-2"
+            )
+        ], fluid=True)
+        self.register_callbacks()
+
+    def register_callbacks(self):
+        """Defines the callbacks for interactive components."""
+        @self.app.callback(
+            [
+                Output("iteration-slider", "value"),
+                Output("prev-button", "disabled"),
+                Output("next-button", "disabled"),
+            ],
+            [
+                Input("prev-button", "n_clicks"),
+                Input("next-button", "n_clicks"),
+                Input("iteration-slider", "value")
+            ],
+            [State("iteration-slider", "value")]
+        )
+        def update_iteration(n_clicks_prev, n_clicks_next, slider_value, slider_state):
+            ctx = dash.callback_context
+            if not ctx.triggered:
+                return slider_value, True, False
+            else:
+                button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+            total_iterations = len(self.history) - 1
+            if button_id == "prev-button":
+                new_value = max(slider_state - 1, 0)
+            elif button_id == "next-button":
+                new_value = min(slider_state + 1, total_iterations)
+            else:
+                new_value = slider_value
+
+            # Disable buttons appropriately
+            disable_prev = new_value == 0
+            disable_next = new_value == total_iterations
+
+            return new_value, disable_prev, disable_next
+
+        @self.app.callback(
+            [
+                Output("objective-progress-chart", "figure"),
+                Output("combined-figure", "figure"),
+                Output("iteration-explanation", "children"),
+            ],
+            [Input("iteration-slider", "value")]
+        )
+        def update_visualizations(selected_iteration):
+            return self.update_visualizations(selected_iteration)
+        
+        @self.app.callback(
+            Output("explanation-collapse", "is_open"),
+            [Input("explanation-toggle", "n_clicks")],
+            [State("explanation-collapse", "is_open")],
+        )
+        def toggle_explanation(n_clicks, is_open):
+            if n_clicks:
+                return not is_open
+            return is_open
+
+    def update_visualizations(self, selected_iteration):
+        """Callback to update all visualizations based on selected iteration."""
+        if not self.history:
+            return {}, {}, {}
+        
+        snapshot = self.history[selected_iteration]
+        
+        totsu_logger.info(f"snapshot at iteration {selected_iteration}\n{snapshot}")
+        
+        # Update the combined figure with all components
+        combined_fig = self.create_combined_figure(snapshot)
+        
+        return (
+            self.create_objective_progress_chart(selected_iteration),
+            combined_fig,
+            self.update_explanation(snapshot, selected_iteration)
+        )
+
+    def create_objective_progress_chart(self, selected_iteration):
+        if not self.history:
+            return go.Figure()
+        iterations = list(range(len(self.history)))
+        obj_values = [snap["objective_value"] for snap in self.history]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=iterations, y=obj_values, mode="lines+markers", name="Objective Value"))
+        # Highlight current iteration
+        fig.add_vline(x=selected_iteration, line_dash="dash", line_color="green")
+        fig.update_layout(
+            title="Objective Value Progress",
+            xaxis_title="Iteration",
+            yaxis_title="Objective Value"
+        )
+        return fig
+
+    def create_combined_figure(self, snapshot):
+        # Extract necessary data
+        objective_row = snapshot["objective_row"]
+        entering_var_idx = snapshot["entering_var_idx"]
+        variables = snapshot["variable_names"]
+        tableau = snapshot["tableau"]
+        pivot_row = snapshot["pivot_row"]
+        pivot_col = snapshot["pivot_col"]
+        constraints = snapshot["constraint_names"]
+        ratios = snapshot["ratios"]  # List of (row_index, ratio)
+
+        # -- Entering Variable Bar Chart Data --
+        colors_entering = ['green' if coef >= 0 else 'red' for coef in objective_row]
+
+        # -- Leaving Variable Bar Chart Data --
+        # Prepare ratios aligned with constraints
+        ratio_dict = {row_idx: ratio for ratio, row_idx in ratios}
+        aligned_ratios = [ratio_dict.get(i, None) for i in range(len(constraints))]
+
+        # Reverse constraints and ratios to match the display order
+        constraints_reversed = constraints[::-1]
+        aligned_ratios_reversed = aligned_ratios[::-1]
+
+        # Colors for the leaving variable bar chart
+        colors_leaving = ['#1f77b4' if i == pivot_row else '#cccccc' for i in range(len(constraints))]
+        colors_leaving_reversed = colors_leaving[::-1]
+
+        # Create a subplot figure with 2 columns and 2 rows
+        fig = make_subplots(
+            rows=2, cols=2,
+            shared_xaxes=False,
+            shared_yaxes=False,
+            row_heights=[0.3, 0.7],
+            column_widths=[0.25, 0.75],
+            vertical_spacing=0.02,
+            horizontal_spacing=0.02,
+            specs=[
+                [None, {"type": "xy"}],
+                [{"type": "xy"}, {"type": "heatmap"}]
+            ]
+        )
+
+        # -- Entering Variable Bar Chart --
+        fig.add_trace(
+            go.Bar(
+                x=variables,
+                y=objective_row,
+                marker_color=colors_entering,
+                name="Objective Coefficients"
+            ),
+            row=1, col=2
+        )
+
+        # Highlight entering variable
+        if entering_var_idx is not None:
+            fig.add_trace(
+                go.Scatter(
+                    x=[variables[entering_var_idx]],
+                    y=[objective_row[entering_var_idx]],
+                    mode="markers+text",
+                    marker=dict(size=12, color="blue", symbol='diamond'),
+                    text=["Entering Variable"],
+                    textposition="top center",
+                    name="Entering Variable"
+                ),
+                row=1, col=2
+            )
+
+        # -- Leaving Variable Bar Chart --
+        fig.add_trace(
+            go.Bar(
+                x=aligned_ratios_reversed,
+                y=constraints_reversed,
+                orientation="h",
+                marker_color=colors_leaving_reversed,
+                name="Minimum Ratios"
+            ),
+            row=2, col=1
+        )
+
+        # Highlight leaving variable
+        if pivot_row is not None:
+            idx_in_reversed = len(constraints) - 1 - pivot_row
+            totsu_logger.debug(f"highlighting leaving variables at [{aligned_ratios_reversed[idx_in_reversed]}, {constraints_reversed[idx_in_reversed]}], idx={idx_in_reversed}")
+            fig.add_trace(
+                go.Scatter(
+                    x=[aligned_ratios_reversed[idx_in_reversed]],
+                    y=[constraints_reversed[idx_in_reversed]],
+                    mode="markers+text",
+                    marker=dict(size=12, color="red", symbol='diamond'),
+                    text=["Leaving Variable"],
+                    textposition="middle right",
+                    name="Leaving Variable"
+                ),
+                row=2, col=1
+            )
+
+        # -- Tableau Heatmap --
+        fig.add_trace(
+            go.Heatmap(
+                z=tableau,
+                x=variables,
+                y=constraints_reversed,
+                colorscale="Viridis",
+                text=tableau.round(2),
+                hoverinfo="text",
+                colorbar=dict(title="Values"),
+                showscale=True
+            ),
+            row=2, col=2
+        )
+
+        # Highlight the pivot element
+        if pivot_row is not None and pivot_col is not None:
+            idx_in_reversed = len(constraints) - 1 - pivot_row
+            fig.add_trace(
+                go.Scatter(
+                    x=[variables[pivot_col]],
+                    y=[constraints_reversed[idx_in_reversed]],
+                    mode="markers+text",
+                    marker=dict(size=14, color="yellow", symbol='diamond'),
+                    text=["Pivot"],
+                    textposition="middle center",
+                    name="Pivot Element"
+                ),
+                row=2, col=2
+            )
+
+        # -- Update Layout --
+        fig.update_layout(
+            height=600,
+            showlegend=False,
+            xaxis=dict(title="Variables", showticklabels=False),
+            xaxis2=dict(title="Ratios"),
+            xaxis3=dict(title="Variables", tickangle=-45),
+            yaxis=dict(title="Objective Coefficients")
+        )
+
+        # Update y-axes configurations
+        fig.update_yaxes(
+            title_text="Constraints",
+            type='category',
+            categoryorder='array',
+            categoryarray=constraints_reversed,
+            showticklabels=True,
+            row=2, col=1
+        )
+
+        fig.update_yaxes(
+            type='category',
+            categoryorder='array',
+            categoryarray=constraints_reversed,
+            showticklabels=False,
+            row=2, col=2
+        )
+
+        return fig
+
+    def update_explanation(self, snapshot, selected_iteration):
+        entering_var_idx = snapshot.get('entering_var_idx')
+        pivot_row = snapshot.get('pivot_row')
+
+        entering_var = snapshot['variable_names'][entering_var_idx] if entering_var_idx is not None else "None"
+        leaving_var = snapshot['constraint_names'][pivot_row] if pivot_row is not None else "None"
+
+        explanation = [
+            html.H4(f"Iteration {selected_iteration} Explanation:"),
+            html.P([
+                html.Strong("Entering Variable: "),
+                f"{entering_var} ",
+                "(Selected to improve the objective function by entering the basis)"
+            ]),
+            html.P([
+                html.Strong("Leaving Variable: "),
+                f"{leaving_var} ",
+                "(Selected to maintain feasibility by leaving the basis)"
+            ]),
+            html.P("The entering variable is chosen based on the most negative coefficient in the objective row, indicating the direction of greatest increase in the objective function. The leaving variable is chosen using the minimum ratio test to ensure that the solution remains feasible.")
+        ]
+        return explanation
