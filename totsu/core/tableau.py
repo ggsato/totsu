@@ -26,6 +26,10 @@ class Tableau:
         return self.standardizer.constraints
     
     @property
+    def constraint_names(self):
+        return [con.name for con in self.constraints]
+    
+    @property
     def original_constraints(self):
         return self.standardizer.original_constraints
     
@@ -427,7 +431,8 @@ class Tableau:
             "feasibility_status": self.is_feasible(),
             "objective_row": self.tableau[-1, :-1].copy(),  # Coefficients of the objective row
             "ratios": self.compute_ratios(pivot_col, len(self.constraints)) if pivot_col is not None else [],  # Ratios for the selected pivot column
-            "variable_names": [var.name for var in self.variables]  # Include variable names
+            "variable_names": [var.name for var in self.variables],  # Include variable names
+            "constraint_names": self.constraint_names
         }
         return snapshot
     

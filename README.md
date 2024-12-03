@@ -29,3 +29,9 @@ Valida ranges of the two most siginificant dual variables are shown on the 3D su
 A ridge line, which could be a valley line in case of minimization problem, is shown as an animcation.
 
 ![ridge analysis](resources/ridge_analysis.gif)
+
+## Tableau Visualization
+
+Integrates solving linear programming problems with the Simplex method and visualizes the selection process of entering and leaving variables, which are crucial for the method's effectiveness.
+
+![tableau visualization](resources/tableau_vis.gif)

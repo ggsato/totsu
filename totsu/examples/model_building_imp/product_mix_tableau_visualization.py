@@ -11,10 +11,11 @@ def main():
 
     # Visualize the solution
     visualizer = TableauVisualizer(primal_model, solver)
-    if visualizer.solve_model():
+    try:
+        visualizer.solve_model()
         visualizer.show_tableau_visualization()
-    else:
-        print("Failed to solve the model.")
+    except:
+        print("Failed to solve the model and show the visualization")
 
 if __name__ == "__main__":
     main()
