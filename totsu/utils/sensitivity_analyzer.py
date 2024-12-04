@@ -42,11 +42,15 @@ class SensitivityAnalyzer:
         try:
             z_primal, shadow_prices = self.solve_lp(self.model.clone(), {})
         except ValueError as e:
-            totsu_logger.info("Primal model is not optimal:", e)
+            totsu_logger.info("Primal model is not optimal", e)
             return False  # Indicate failure
 
         # Identify significant constraints
         self.significant_constraints = self.get_significant_constraints(shadow_prices)
+
+        if len(self.significant_constraints) == 1:
+            totsu_logger.error(f"More than one constraints are required for this visualization")
+            return False
 
         # Get original RHS values for significant constraints
         for constr_name in self.significant_constraints:
