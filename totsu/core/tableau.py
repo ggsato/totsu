@@ -138,7 +138,7 @@ class Tableau:
         self.print_tableau("constructed")
 
         # Record the initial tableau in history
-        self.history.append(self.take_snapshot())
+        self.history.append(self.take_snapshot(1))
 
     def print_tableau(self, message):
         totsu_logger.debug(f"tableau[{message}]:")
@@ -198,7 +198,7 @@ class Tableau:
 
         return pivot_rows[0]  # Choose the first one (Bland's Rule)
 
-    def pivot_operation(self, pivot_row, pivot_col):
+    def pivot_operation(self, pivot_row, pivot_col, phase=1):
         pivot_element = self.tableau[pivot_row, pivot_col]
         if abs(pivot_element) < 1e-8:
             raise ZeroDivisionError("Pivot element is too close to zero.")
@@ -232,7 +232,7 @@ class Tableau:
         self.is_dirty = True
 
         # Record the tableau after pivot
-        self.history.append(self.take_snapshot(pivot_col, pivot_row, entering_var_idx, leaving_var_idx))
+        self.history.append(self.take_snapshot(phase, pivot_col, pivot_row, entering_var_idx, leaving_var_idx))
 
         # Debugging output
         index_to_var_name = self.standardizer.index_to_var_name()
@@ -378,7 +378,7 @@ class Tableau:
                     self.tableau[-1, :] -= coef * self.tableau[i, :]
 
         # Record the tableau after setting the Phase II objective
-        self.history.append(self.take_snapshot())
+        self.history.append(self.take_snapshot(2))
 
         self.print_tableau("phase2 objective set")
 
@@ -418,7 +418,7 @@ class Tableau:
                         if not ('slack' in var_name or 'surplus' in var_name or 'artificial' in var_name)}
         return final_solution
 
-    def take_snapshot(self, pivot_col=None, pivot_row=None, entering_var_idx=None, leaving_var_idx=None):
+    def take_snapshot(self, phase, pivot_col=None, pivot_row=None, entering_var_idx=None, leaving_var_idx=None):
         snapshot = {
             "tableau": self.tableau.copy(),
             "entering_var_idx": entering_var_idx,
@@ -432,7 +432,7 @@ class Tableau:
             "objective_row": self.tableau[-1, :-1].copy(),  # Coefficients of the objective row
             "ratios": self.compute_ratios(pivot_col, len(self.constraints)) if pivot_col is not None else [],  # Ratios for the selected pivot column
             "variable_names": [var.name for var in self.variables],  # Include variable names
-            "constraint_names": self.constraint_names
+            "phase": phase
         }
         return snapshot
     

@@ -162,7 +162,7 @@ def test_extract_solution():
         pivot_row = tableau.select_pivot_row(pivot_col)
         if pivot_row is None:
             break
-        tableau.pivot_operation(pivot_row, pivot_col)
+        tableau.pivot_operation(pivot_row, pivot_col, 2)
 
     # Extract solution
     solution = tableau.extract_solution()
