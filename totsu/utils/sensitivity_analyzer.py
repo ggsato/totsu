@@ -17,6 +17,7 @@ from dash import dcc, html
 from dash.dependencies import Input, Output, State, ALL
 import threading
 from ..utils.logger import totsu_logger
+from ..utils.model_processor import ModelProcessor
 
 class SensitivityAnalyzer:
     def __init__(self, model, solver):
@@ -34,6 +35,7 @@ class SensitivityAnalyzer:
             "completed": False,
             "valid_ranges": {},
         }
+        self.is_minimization = ModelProcessor.get_active_objective(model).sense == minimize
 
     def solve_primal(self):
         # Solve the primal model
@@ -125,35 +127,52 @@ class SensitivityAnalyzer:
 
         # Check increase direction
         b = b_original_value
-        while True:
+        iteration = 0
+        max_iterations = 1000  # Prevent infinite loops
+        while iteration < max_iterations:
+            iteration += 1
             b += delta
             rhs_adjustments[constraint_name] = b
             try:
                 z_new, shadow_prices_new = self.solve_lp(model.clone(), rhs_adjustments)
-                new_shadow_price = shadow_prices_new[constraint_name]
+                new_shadow_price = shadow_prices_new.get(constraint_name, 0.0)
                 expected_objective = original_objective + original_shadow_price * (b - b_original_value)
-                if abs(new_shadow_price - original_shadow_price) > 1e-5 or abs(z_new - expected_objective) > 1e-2:
+                if (abs(new_shadow_price - original_shadow_price) > 1e-5 or
+                    abs(z_new - expected_objective) > 1e-2):
+                    totsu_logger.debug(f"no more points for {constraint_name} in the increase direction beyond {b} at iteration {iteration}")
+                    totsu_logger.debug(f"original objective = {original_objective}, original shadow price = {original_shadow_price}, b original value = {b_original_value}")
+                    totsu_logger.debug(f"z_new = {z_new}, new shadow price = {new_shadow_price}, expected objective = {expected_objective}")
                     break
                 allowable_increase = b - b_original_value
             except:
-                break
+                raise
+        if iteration >= max_iterations:
+            totsu_logger.warning(f"gave up on calculating valid ranges in the increase direction")
 
         # Check decrease direction
         b = b_original_value
-        while True:
+        iteration = 0
+        while iteration < max_iterations and b > 0:
+            iteration += 1
             b -= delta
-            if b <= 0:
-                break  # Cannot have negative capacity
+            if b < 0:
+                b = 0
             rhs_adjustments[constraint_name] = b
             try:
                 z_new, shadow_prices_new = self.solve_lp(model.clone(), rhs_adjustments)
-                new_shadow_price = shadow_prices_new[constraint_name]
+                new_shadow_price = shadow_prices_new.get(constraint_name, 0.0)
                 expected_objective = original_objective + original_shadow_price * (b - b_original_value)
-                if abs(new_shadow_price - original_shadow_price) > 1e-5 or abs(z_new - expected_objective) > 1e-2:
+                if (abs(new_shadow_price - original_shadow_price) > 1e-5 or
+                    abs(z_new - expected_objective) > 1e-2):
+                    totsu_logger.debug(f"no more points for {constraint_name} in the decrease direction beyond {b} at iteration {iteration}")
+                    totsu_logger.debug(f"original objective = {original_objective}, original shadow price = {original_shadow_price}, b original value = {b_original_value}")
+                    totsu_logger.debug(f"z_new = {z_new}, new shadow price = {new_shadow_price}, expected objective = {expected_objective}")
                     break
                 allowable_decrease = b_original_value - b
             except:
-                break
+                raise
+        if iteration >= max_iterations:
+            totsu_logger.warning(f"gave up on calculating valid ranges in the decrease direction")
 
         return allowable_increase, allowable_decrease
 
@@ -237,7 +256,7 @@ class SensitivityAnalyzer:
 
                 # Define the direction vector based on shadow prices
                 gradient = np.array([shadow_price_x, shadow_price_y])
-                if self.model.obj.sense == minimize:
+                if self.is_minimization:
                     gradient = -gradient
 
                 norm = np.linalg.norm(gradient)
