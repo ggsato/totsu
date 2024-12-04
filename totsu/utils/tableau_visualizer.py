@@ -162,16 +162,61 @@ class TableauVisualizer:
     def create_objective_progress_chart(self, selected_iteration):
         if not self.history:
             return go.Figure()
+
         iterations = list(range(len(self.history)))
-        obj_values = [snap["objective_value"] for snap in self.history]
+        obj_values_phase1 = []
+        obj_values_phase2 = []
+        phases = []
+
+        for idx, snap in enumerate(self.history):
+            phase = snap.get('phase', 1)  # Default to Phase 1 if not specified
+            phases.append(phase)
+            if phase == 1:
+                obj_values_phase1.append(snap["objective_value"])
+                obj_values_phase2.append(None)
+            else:
+                obj_values_phase1.append(None)
+                obj_values_phase2.append(snap["objective_value"])
+
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=iterations, y=obj_values, mode="lines+markers", name="Objective Value"))
+
+        # Plot Phase 1 Objective Values
+        fig.add_trace(go.Scatter(
+            x=iterations,
+            y=obj_values_phase1,
+            mode="lines+markers",
+            name="Phase 1 Objective",
+            line=dict(color='blue'),
+        ))
+
+        # Plot Phase 2 Objective Values
+        fig.add_trace(go.Scatter(
+            x=iterations,
+            y=obj_values_phase2,
+            mode="lines+markers",
+            name="Phase 2 Objective",
+            line=dict(color='green'),
+        ))
+
         # Highlight current iteration
-        fig.add_vline(x=selected_iteration, line_dash="dash", line_color="green")
+        fig.add_vline(x=selected_iteration, line_dash="dash", line_color="red")
+
+        # Indicate Phase Transition
+        if 2 in phases:
+            phase_transition_idx = phases.index(2)
+            fig.add_vline(
+                x=phase_transition_idx - 0.5,
+                line_dash="dot",
+                line_color="black",
+                annotation_text="Phase 2 Begins",
+                annotation_position="top left"
+            )
+
         fig.update_layout(
             title="Objective Value Progress",
             xaxis_title="Iteration",
-            yaxis_title="Objective Value"
+            yaxis_title="Objective Value",
+            legend_title="Phases"
         )
         return fig
 
@@ -185,6 +230,7 @@ class TableauVisualizer:
         pivot_col = snapshot["pivot_col"]
         basic_var_indices = snapshot['basis_vars']
         ratios = snapshot["ratios"]  # List of (ratio, row_index)
+        phase = snapshot["phase"]
 
         # -- Basic Variable Names --
         basic_var_names = [variables[idx] for idx in basic_var_indices]
@@ -337,24 +383,46 @@ class TableauVisualizer:
         entering_var_idx = snapshot.get('entering_var_idx')
         pivot_row = snapshot.get('pivot_row')
         variables = snapshot['variable_names']
-        basic_var_indices = snapshot['basis_vars']
-        basic_var_names = [variables[idx] for idx in basic_var_indices]
+        phase = snapshot.get('phase', 1)  # Default to Phase 1 if not specified
 
+        # Get entering variable name
         entering_var = variables[entering_var_idx] if entering_var_idx is not None else "None"
-        leaving_var = basic_var_names[pivot_row] if pivot_row is not None else "None"
+
+        # Get leaving variable name from previous snapshot
+        if selected_iteration > 0 and pivot_row is not None:
+            prev_snapshot = self.history[selected_iteration - 1]
+            prev_basic_var_indices = prev_snapshot['basis_vars']
+            prev_basic_var_names = [variables[idx] for idx in prev_basic_var_indices]
+            leaving_var = prev_basic_var_names[pivot_row]
+        else:
+            leaving_var = "None"
 
         explanation = [
-            html.H4(f"Iteration {selected_iteration} Explanation:"),
+            html.H4(f"Iteration {selected_iteration} Explanation (Phase {phase}):"),
             html.P([
                 html.Strong("Entering Variable: "),
                 f"{entering_var} ",
                 "(Selected to improve the objective function by entering the basis)"
-            ]),
+            ]) if entering_var != "None" else html.P("No entering variable. Optimality reached."),
             html.P([
                 html.Strong("Leaving Variable: "),
                 f"{leaving_var} ",
                 "(Selected to maintain feasibility by leaving the basis)"
-            ]),
-            html.P("The entering variable is chosen based on the most negative coefficient in the objective row, indicating the direction of greatest increase in the objective function. The leaving variable is chosen using the minimum ratio test to ensure that the solution remains feasible.")
+            ]) if leaving_var != "None" else html.P("No leaving variable. Solution is infeasible."),
+            # Replace the placeholder with specific explanations
+            html.P(self.get_phase_explanation(phase))
         ]
         return explanation
+    
+    def get_phase_explanation(self, phase):
+        if phase == 1:
+            return ("Phase 1 focuses on finding an initial basic feasible solution. "
+                    "Artificial variables are introduced to achieve feasibility. "
+                    "The objective is to minimize the sum of artificial variables. "
+                    "Once a feasible solution is found, the algorithm proceeds to Phase 2.")
+        elif phase == 2:
+            return ("Phase 2 optimizes the original objective function using the basic feasible solution "
+                    "obtained from Phase 1. The algorithm performs pivot operations to improve the objective value "
+                    "until optimality is reached.")
+        else:
+            return "Unknown phase."

@@ -91,7 +91,7 @@ class SuperSimplexSolver:
             if pivot_row is None:
                 # No valid pivot row indicates unboundedness
                 raise UnboundedProblemError("Problem is unbounded.")
-            self._tableau.pivot_operation(pivot_row, pivot_col)
+            self._tableau.pivot_operation(pivot_row, pivot_col, phase)
             iteration += 1
         return True
 
