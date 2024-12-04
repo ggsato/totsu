@@ -87,7 +87,7 @@ class SensitivityAnalyzer:
             raise ValueError("Solver did not find an optimal solution.")
 
         # Get the objective value
-        objective_value = value(model.obj)
+        objective_value = result.solver.objective
 
         # Extract shadow prices (dual values)
         shadow_prices = {}
