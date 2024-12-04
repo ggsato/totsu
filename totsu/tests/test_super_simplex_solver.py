@@ -336,15 +336,6 @@ def test_convexity(solver, basic_lp_model, basic_lp_model_reordered):
     assert abs(solution1['x2'] - solution2['x2']) <= tolerance, f"Expected x2 to be the same, got {solution1['x2']} and {solution2['x2']}"
     assert abs(solver.get_current_objective_value() - solver.get_current_objective_value()) <= tolerance, "Objective values differ"
 
-
-def test_basic_non_basic_partition(solver, basic_lp_model):
-    """Verify basic and non-basic variable partitioning after each pivot."""
-    solver.solve(basic_lp_model)
-    basic_vars = solver.basic_variables
-    non_basic_vars = solver.non_basic_variables
-    assert len(basic_vars) == solver.tableau.shape[0] - 1, "Mismatch in basic variable count"
-    assert not set(basic_vars).intersection(non_basic_vars), "Overlap between basic and non-basic variables"
-
 def test_standard_lp(solver, basic_lp_model):
     """Test a standard LP problem to verify correctness of the solution."""
     solution = solver.solve(basic_lp_model)

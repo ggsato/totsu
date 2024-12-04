@@ -35,3 +35,17 @@ A ridge line, which could be a valley line in case of minimization problem, is s
 Integrates solving linear programming problems with the Simplex method and visualizes the selection process of entering and leaving variables, which are crucial for the method's effectiveness.
 
 ![tableau visualization](resources/tableau_vis.gif)
+
+# Installation
+
+```
+totsu$ conda install -c conda-forge pyomo numpy pytest plotly dash dash-bootstrap-components
+totsu$ pytest
+```
+
+# Quick Start
+
+```
+totsu$ python3 -m totsu.examples.model_building_imp.product_mix_tableau_visualization
+totsu$ python3 -m totsu.examples.model_building_imp.product_mix_visualization
+```

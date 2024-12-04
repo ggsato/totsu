@@ -108,30 +108,6 @@ class SuperSimplexSolver:
     def is_optimal(self):
         return self._tableau.is_optimal()
     
-    @property
-    def basic_variables(self):
-        return self._tableau.basis_vars
-    
-    @property
-    def non_basic_variables(self):
-        return self._tableau.non_basis_vars
-    
-    @property
-    def tableau(self):
-        return self._tableau.tableau.copy()
-    
-    @property
-    def variables(self):
-        return self._tableau.variables
-    
-    @property
-    def constraints(self):
-        return self._tableau.constratints
-    
-    @property
-    def original_constraints(self):
-        return self._tableau.original_constraints
-    
     def get_dual_variables(self):
         return self._tableau.compute_dual_variables()
 
