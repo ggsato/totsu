@@ -98,9 +98,6 @@ class SuperSimplexSolver:
 
     def get_history(self):
         return self._tableau.history
-    
-    def get_map_index_to_var_name(self):
-        return self._tableau.standardizer.index_to_var_name()
 
     def get_current_objective_value(self):
         return self._tableau.get_current_objective_value()

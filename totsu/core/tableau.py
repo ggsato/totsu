@@ -99,7 +99,7 @@ class Tableau:
         num_constraints = len(self.constraints)
         num_variables = len(self.variables)
 
-        var_name_to_index = self.standardizer.var_name_to_index()
+        var_name_to_index = self.var_name_to_index()
 
         # Initialize the tableau matrix
         # Rows: Number of constraints + 1 (for the objective function)
@@ -256,7 +256,7 @@ class Tableau:
                 return False  # Not optimal yet
             
             # Optionally check artificial variables' values
-            var_name_to_index = self.standardizer.var_name_to_index()
+            var_name_to_index = self.var_name_to_index()
             artificial_indices = [var_name_to_index[var.name] for var in self.artificial_vars]
             
             # Collect values of artificial variables in the basis
@@ -288,7 +288,7 @@ class Tableau:
     def is_feasible(self):
         if self.updated_tableau is None:
             # phase1
-            var_name_to_index = self.standardizer.var_name_to_index()
+            var_name_to_index = self.var_name_to_index()
             # After Phase I, check if the artificial variables are zero in the solution
             artificial_indices = [var_name_to_index[var.name] for var in self.artificial_vars]
             for idx in artificial_indices:
@@ -356,7 +356,7 @@ class Tableau:
         self.objective = self.standardizer.original_objective
         self.objective.activate()
         repn = generate_standard_repn(self.objective.expr)
-        var_name_to_index = self.standardizer.var_name_to_index()
+        var_name_to_index = self.var_name_to_index()
 
         # Reset the objective row in the tableau
         self.tableau[-1, :] = 0  # Start with zeros
@@ -565,7 +565,9 @@ class Tableau:
         return self.var_name_to_var[var_name]
 
     def index_to_var_name(self):
-        if self.updated_tableau is None:
-            return self.standardizer.index_to_var_name()
         index_to_var_name = {idx: var.name for idx, var in enumerate(self.variables)}
         return index_to_var_name
+
+    def var_name_to_index(self):
+        var_name_to_index = {var.name: idx for idx, var in enumerate(self.variables)}
+        return var_name_to_index
