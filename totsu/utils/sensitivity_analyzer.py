@@ -239,8 +239,8 @@ class SensitivityAnalyzer:
         x_constr, y_constr = self.significant_constraints
 
         def trace_path(x_start, y_start, step_size, direction_multiplier):
-            x_values = [x_start]
-            y_values = [y_start]
+            x_values = []
+            y_values = []
             z_values = []
 
             x_current = x_start
@@ -249,7 +249,11 @@ class SensitivityAnalyzer:
             for _ in range(num_steps):
                 # Solve LP at the current point
                 try:
-                    z_current, shadow_prices = self.solve_lp(self.model.clone(), {x_constr: x_current, y_constr: y_current})
+                    z_current, shadow_prices = self.solve_lp(
+                        self.model.clone(), {x_constr: x_current, y_constr: y_current}
+                    )
+                    x_values.append(x_current)
+                    y_values.append(y_current)
                     z_values.append(z_current)
                 except:
                     break  # Cannot solve LP at this point
@@ -282,9 +286,6 @@ class SensitivityAnalyzer:
                 x_current = x_next
                 y_current = y_next
 
-                x_values.append(x_current)
-                y_values.append(y_current)
-
             return x_values, y_values, z_values
 
         # Start from the original point
@@ -301,6 +302,8 @@ class SensitivityAnalyzer:
         x_values = x_vals_neg[::-1][:-1] + x_vals_pos
         y_values = y_vals_neg[::-1][:-1] + y_vals_pos
         z_values = z_vals_neg[::-1][:-1] + z_vals_pos
+
+        totsu_logger.debug(f"length of x,y,z values = {len(x_values)}, {len(y_values)}, {len(z_values)}")
 
         if len(x_values) < 2:
             return None, None, None, "Too few points"
