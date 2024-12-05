@@ -12,6 +12,7 @@ from pyomo.environ import (
     value,
 )
 from pyomo.opt import SolverStatus, TerminationCondition
+from pyomo.core import inequality
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State, ALL
@@ -68,16 +69,27 @@ class SensitivityAnalyzer:
         # Adjust RHS values of the constraints
         for constr_name, new_rhs in rhs_adjustments.items():
             constraint = getattr(model, constr_name)
-            # Update the constraint with the new RHS value
             expr = constraint.body
-            if constraint.has_lb() and constraint.has_ub():
-                constraint.set_value(expr >= constraint.lower())
+
+            # Update the constraint with the new RHS value
+            if constraint.equality:
+                # For equality constraints
+                constraint.set_value(expr == new_rhs)
+            elif constraint.has_lb() and not constraint.has_ub():
+                # For constraints of the form expr >= lb
+                # Adjust the lower bound
+                constraint.set_value(expr >= new_rhs)
+            elif constraint.has_ub() and not constraint.has_lb():
+                # For constraints of the form expr <= ub
+                # Adjust the upper bound
                 constraint.set_value(expr <= new_rhs)
-            elif constraint.has_lb():
-                constraint.set_value(expr >= constraint.lower())
-            elif constraint.has_ub():
-                constraint.set_value(expr <= new_rhs)
+            elif constraint.has_lb() and constraint.has_ub():
+                # For constraints of the form lb <= expr <= ub
+                # Decide which bound to adjust based on the original constraint
+                # Here, we assume adjusting the lower bound
+                constraint.set_value(inequality(new_rhs, expr, constraint.upper()))
             else:
+                # No bounds? Set as equality
                 constraint.set_value(expr == new_rhs)
 
         # Declare dual suffixes to get shadow prices
@@ -212,6 +224,7 @@ class SensitivityAnalyzer:
                 rhs_adjustments[constr_name] = B[constr_indices[constr_name]][idx]
             try:
                 Z_value, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
+                totsu_logger.info(f"z = {Z_value} for {rhs_adjustments}")
                 Z[idx] = Z_value
             except:
                 Z[idx] = np.nan  # Infeasible solution
