@@ -249,14 +249,6 @@ class ModelStandardizer:
         self.objective = model.obj_phase1
         # Deactivate the original objective
         self.original_objective.deactivate()
-
-    def var_name_to_index(self):
-        var_name_to_index = {var.name: idx for idx, var in enumerate(self.variables)}
-        return var_name_to_index
-
-    def index_to_var_name(self):
-        index_to_var_name = {idx: var.name for idx, var in enumerate(self.variables)}
-        return index_to_var_name
     
     def original_var_indices(self):
         original_var_indices = [

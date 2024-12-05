@@ -7,7 +7,7 @@ from ..utils.logger import totsu_logger
 
 class Tableau:
     def __init__(self, standardizer):
-        self.standardizer = standardizer
+        self.standardizer = standardizer # Be careful in phase 2 because it is not synchronized
         self.updated_objective = None
         self._tableau = None  # The simplex tableau
         self.updated_tableau = None
@@ -15,7 +15,6 @@ class Tableau:
         self.basis_vars = []
         self.non_basis_vars = []
         self.history = []  # To store tableau history for visualization
-        self.is_dirty = False  # Flag to mark if the basis is "dirty" after a pivot
 
     @property
     def standard_model(self):
@@ -100,7 +99,7 @@ class Tableau:
         num_constraints = len(self.constraints)
         num_variables = len(self.variables)
 
-        var_name_to_index = self.standardizer.var_name_to_index()
+        var_name_to_index = self.var_name_to_index()
 
         # Initialize the tableau matrix
         # Rows: Number of constraints + 1 (for the objective function)
@@ -130,7 +129,7 @@ class Tableau:
 
         # Adjust the objective row for artificial variables in the basis
         for i, var_idx in enumerate(self.basis_vars):
-            var_name = self.standardizer.index_to_var_name()[var_idx]
+            var_name = self.index_to_var_name()[var_idx]
             if 'artificial' in var_name:
                 # Subtract the constraint row from the objective row
                 self.tableau[-1, :] -= self.tableau[i, :]
@@ -229,13 +228,11 @@ class Tableau:
         factor = self.tableau[-1, pivot_col]
         self.tableau[-1, :] -= factor * self.tableau[pivot_row, :]
 
-        self.is_dirty = True
-
         # Record the tableau after pivot
         self.history.append(self.take_snapshot(phase, pivot_col, pivot_row, entering_var_idx, leaving_var_idx))
 
         # Debugging output
-        index_to_var_name = self.standardizer.index_to_var_name()
+        index_to_var_name = self.index_to_var_name()
         totsu_logger.debug(f"Pivoting: Row {pivot_row}, Column {pivot_col}")
         totsu_logger.debug(f"Leaving variable: {index_to_var_name[leaving_var_idx]}")
         totsu_logger.debug(f"Entering variable: {index_to_var_name[entering_var_idx]}")
@@ -259,7 +256,7 @@ class Tableau:
                 return False  # Not optimal yet
             
             # Optionally check artificial variables' values
-            var_name_to_index = self.standardizer.var_name_to_index()
+            var_name_to_index = self.var_name_to_index()
             artificial_indices = [var_name_to_index[var.name] for var in self.artificial_vars]
             
             # Collect values of artificial variables in the basis
@@ -291,7 +288,7 @@ class Tableau:
     def is_feasible(self):
         if self.updated_tableau is None:
             # phase1
-            var_name_to_index = self.standardizer.var_name_to_index()
+            var_name_to_index = self.var_name_to_index()
             # After Phase I, check if the artificial variables are zero in the solution
             artificial_indices = [var_name_to_index[var.name] for var in self.artificial_vars]
             for idx in artificial_indices:
@@ -359,7 +356,7 @@ class Tableau:
         self.objective = self.standardizer.original_objective
         self.objective.activate()
         repn = generate_standard_repn(self.objective.expr)
-        var_name_to_index = self.standardizer.var_name_to_index()
+        var_name_to_index = self.var_name_to_index()
 
         # Reset the objective row in the tableau
         self.tableau[-1, :] = 0  # Start with zeros
@@ -392,18 +389,36 @@ class Tableau:
         # Remove columns corresponding to artificial variables from the tableau
         self.tableau = np.delete(self.tableau, artificial_indices, axis=1)
 
-        # Update basis and non-basis variables lists
-        self.basis_vars = [var for var in self.basis_vars if var not in artificial_indices]
-        self.non_basis_vars = [var for var in self.non_basis_vars if var not in artificial_indices]
-
         # Remove artificial variables from the variable list
-        self.variables = [var for var in self.variables if 'artificial' not in var.name]
+        new_variables = [var for var in self.variables if 'artificial' not in var.name]
+        
+        # Build mapping from old index to new index
+        old_index_to_new_index = {}
+        new_idx = 0
+        for old_idx, var in enumerate(self.variables):
+            if 'artificial' not in var.name:
+                old_index_to_new_index[old_idx] = new_idx
+                new_idx += 1
+            else:
+                pass  # Skip artificial variables
+
+        # Update basis and non-basis variables lists
+        # Remove indices corresponding to artificial variables
+        self.basis_vars = [var_idx for var_idx in self.basis_vars if var_idx in old_index_to_new_index]
+        self.non_basis_vars = [var_idx for var_idx in self.non_basis_vars if var_idx in old_index_to_new_index]
+
+        # Adjust indices to match the updated variables list
+        self.basis_vars = [old_index_to_new_index[var_idx] for var_idx in self.basis_vars]
+        self.non_basis_vars = [old_index_to_new_index[var_idx] for var_idx in self.non_basis_vars]
+
+        # Update variables list
+        self.variables = new_variables
 
     def extract_solution(self):
         solution = {}
         num_constraints = len(self.constraints)
         num_variables = len(self.variables)
-        index_to_var_name = self.standardizer.index_to_var_name()
+        index_to_var_name = self.index_to_var_name()
         for i, basic_var_idx in enumerate(self.basis_vars):
             var_name = index_to_var_name[basic_var_idx]
             value = self.tableau[i, -1]
@@ -463,7 +478,7 @@ class Tableau:
         Compute the dual variables y^T = c_B^T * B^{-1}
         """
         # Map variable indices to names
-        index_to_var_name = self.standardizer.index_to_var_name()
+        index_to_var_name = self.index_to_var_name()
         
         # Extract c_B (coefficients of basic variables in the objective function)
         c_B = []
@@ -488,7 +503,7 @@ class Tableau:
         """
         Compute reduced costs for non-basic variables
         """
-        index_to_var_name = self.standardizer.index_to_var_name()
+        index_to_var_name = self.index_to_var_name()
         reduced_costs = {}
         for idx in self.non_basis_vars:
             var_name = index_to_var_name[idx]
@@ -521,7 +536,7 @@ class Tableau:
         """
         Extract the column of a variable in the constraints by variable index
         """
-        var_name = self.standardizer.index_to_var_name()[var_idx]
+        var_name = self.index_to_var_name()[var_idx]
         return self.get_variable_column_in_constraints(var_name)
 
     def get_variable_column_in_constraints(self, var_name):
@@ -548,3 +563,11 @@ class Tableau:
         if not hasattr(self, 'var_name_to_var'):
             self.var_name_to_var = {var.name: var for var in self.variables}
         return self.var_name_to_var[var_name]
+
+    def index_to_var_name(self):
+        index_to_var_name = {idx: var.name for idx, var in enumerate(self.variables)}
+        return index_to_var_name
+
+    def var_name_to_index(self):
+        var_name_to_index = {var.name: idx for idx, var in enumerate(self.variables)}
+        return var_name_to_index

@@ -28,7 +28,7 @@ def test_tableau_initialization():
     # Since this is a basic test, you can print the tableau for manual verification or compare expected values
 
     # Example: Check a specific coefficient
-    var_name_to_index = standardizer.var_name_to_index()
+    var_name_to_index = tableau.var_name_to_index()
     x_idx = var_name_to_index['x']
     y_idx = var_name_to_index['y']
 
