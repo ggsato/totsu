@@ -1,10 +1,10 @@
-from .blending import create_model
-from ...utils.tableau_visualizer import TableauVisualizer
-from ...core.super_simplex_solver import SuperSimplexSolver
+from .multiplant import create_company_model
+from .....utils.tableau_visualizer import TableauVisualizer
+from .....core.super_simplex_solver import SuperSimplexSolver
 
 def main():
     # Create the model
-    model = create_model()
+    model = create_company_model()
 
     # Initialize the solver
     solver = SuperSimplexSolver()

@@ -1,7 +1,7 @@
 from pyomo.environ import SolverFactory
 from .product_mix import create_model, create_dual_model
-from ...utils.sensitivity_analyzer import SensitivityAnalyzer
-from ...core.totsu_simplex_solver import TotsuSimplexSolver # required to register
+from .....utils.sensitivity_analyzer import SensitivityAnalyzer
+from .....core.totsu_simplex_solver import TotsuSimplexSolver # required to register
 
 def main(use_dual):
     # Create the model

@@ -1,6 +1,6 @@
 from .product_mix import create_model, create_dual_model
-from ...utils.tableau_visualizer import TableauVisualizer
-from ...core.super_simplex_solver import SuperSimplexSolver
+from .....utils.tableau_visualizer import TableauVisualizer
+from .....core.super_simplex_solver import SuperSimplexSolver
 
 def main(use_dual):
     # Create the model
