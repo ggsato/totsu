@@ -224,7 +224,7 @@ class SensitivityAnalyzer:
                 rhs_adjustments[constr_name] = B[constr_indices[constr_name]][idx]
             try:
                 Z_value, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
-                totsu_logger.info(f"z = {Z_value} for {rhs_adjustments}")
+                totsu_logger.debug(f"z = {Z_value} for {rhs_adjustments}")
                 Z[idx] = Z_value
             except:
                 Z[idx] = np.nan  # Infeasible solution
