@@ -1,16 +1,16 @@
-from .product_mix import create_model
-from ...utils.tableau_visualizer import TableauVisualizer
-from ...core.super_simplex_solver import SuperSimplexSolver
+from .multiplant import create_company_model
+from .....utils.tableau_visualizer import TableauVisualizer
+from .....core.super_simplex_solver import SuperSimplexSolver
 
 def main():
-    # Create the primal model
-    primal_model = create_model()
+    # Create the model
+    model = create_company_model()
 
     # Initialize the solver
     solver = SuperSimplexSolver()
 
     # Visualize the solution
-    visualizer = TableauVisualizer(primal_model, solver)
+    visualizer = TableauVisualizer(model, solver)
     try:
         visualizer.solve_model()
         visualizer.show_tableau_visualization()

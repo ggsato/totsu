@@ -107,7 +107,7 @@ if __name__ == "__main__":
         solver = SuperSimplexSolver()
         solution = solver.solve(model)
 
-        print(f"objective value = {solution["objective_value"]}") # 10,920
+        print(f"objective value = {solver.get_current_objective_value()}") # 10,920
         print(f"x1 = {solution["x1"]:.1f}") # 12
         print(f"x2 = {solution["x2"]:.1f}") # 7.2
         print(f"x3 = {solution["x3"]:.1f}") # 0
@@ -120,14 +120,14 @@ if __name__ == "__main__":
         model.x3 = solution["x3"]
         model.x4 = solution["x4"]
         model.x5 = solution["x5"]
-        print(f"Grinding usage: {model.con1_2.body()} <= {maximum_capacities[processes[0]]}") # 288.0 <= 288, binding
-        print(f"Drilling usage: {model.con1_3.body()} <= {maximum_capacities[processes[1]]}") # 177.6 <= 192, not binding
-        print(f"Manpower usage: {model.con1_4.body()} <= {maximum_capacities[processes[2]]}") # 384.0 <= 384, binding
+        print(f"Grinding usage: {model.grinding_capacity.body()} <= {maximum_capacities[processes[0]]}") # 288.0 <= 288, binding
+        print(f"Drilling usage: {model.drilling_capacity.body()} <= {maximum_capacities[processes[1]]}") # 177.6 <= 192, not binding
+        print(f"Manpower usage: {model.manpower_capacity.body()} <= {maximum_capacities[processes[2]]}") # 384.0 <= 384, binding
 
         dual_model = create_dual_model()
         solution_dual = solver.solve(dual_model)
 
-        print(f"objective value = {solution_dual["objective_value"]}") # 10,920, the same value of the primal model(duality theorem)
+        print(f"objective value = {solver.get_current_objective_value()}") # 10,920, the same value of the primal model(duality theorem)
         # Dual variables, Shadow Prices
         print(f"y1 = {solution_dual["y1"]:.2f}") # 6.25
         print(f"y2 = {solution_dual["y2"]:.2f}") # 0

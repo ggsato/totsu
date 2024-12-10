@@ -243,24 +243,28 @@ class TableauVisualizer:
         ratio_dict = {row_idx: ratio for ratio, row_idx in ratios}
         aligned_ratios = [ratio_dict.get(i, None) for i in range(len(basic_var_names))]
 
+        # -- RHS column --
+        # Separate RHS
+        rhs_values = tableau[:-1, -1] # exclude objective value
+
         # Reverse data to match display order if necessary
         basic_var_names_reversed = basic_var_names[::-1]
         aligned_ratios_reversed = aligned_ratios[::-1]
         colors_leaving = ['#1f77b4' if i == pivot_row else '#cccccc' for i in range(len(basic_var_names))]
         colors_leaving_reversed = colors_leaving[::-1]
 
-        # Create a subplot figure with 2 columns and 2 rows
+        # Create a subplot figure with 3 columns and 2 rows
         fig = make_subplots(
-            rows=2, cols=2,
+            rows=2, cols=3,
             shared_xaxes=False,
             shared_yaxes=False,
             row_heights=[0.3, 0.7],
-            column_widths=[0.25, 0.75],
+            column_widths=[0.25, 0.5, 0.25],
             vertical_spacing=0.02,
             horizontal_spacing=0.02,
             specs=[
-                [None, {"type": "xy"}],
-                [{"type": "xy"}, {"type": "heatmap"}]
+                [None, {"type": "xy"}, None],
+                [{"type": "xy"}, {"type": "heatmap"}, {"type": "xy"}]
             ]
         )
 
@@ -333,6 +337,18 @@ class TableauVisualizer:
             row=2, col=2
         )
 
+        # -- RHS values --
+        fig.add_trace(
+            go.Bar(
+                x=rhs_values[::-1],  # reverse to match the order of basic_var_names_reversed
+                y=basic_var_names_reversed,
+                orientation="h",
+                marker_color='lightblue',
+                name="RHS"
+            ),
+            row=2, col=3
+        )
+
         # Highlight the pivot element
         if pivot_row is not None and pivot_col is not None:
             idx_in_reversed = len(basic_var_names) - 1 - pivot_row
@@ -376,6 +392,10 @@ class TableauVisualizer:
             showticklabels=False,
             row=2, col=2
         )
+
+        # Clearly distinguish RHS
+        fig.update_xaxes(title_text="RHS", row=2, col=3)
+        fig.update_yaxes(showticklabels=False, row=2, col=3)  # If you want to hide repetitive labels
 
         return fig
 
