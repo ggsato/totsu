@@ -43,6 +43,18 @@ Sensitivity Analysis
 python3 -m totsu.examples.model_building_imp.examples.4-1_multiplant.multiplant_visualization
 ```
 
+### 5.1 Three-industry economy
+
+Tableau Visualization
+```
+python3 -m totsu.examples.model_building_imp.examples.5-1_three_industry_economy.three_industry_economy_tableau_visualization
+```
+
+Sensitivity Analysis
+```
+python3 -m totsu.examples.model_building_imp.examples.5-1_three_industry_economy.three_industry_economy_visualization
+```
+
 ## Problems
 
 *Coming Soon*
