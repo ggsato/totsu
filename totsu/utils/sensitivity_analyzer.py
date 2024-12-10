@@ -37,20 +37,26 @@ class SensitivityAnalyzer:
             "valid_ranges": {},
         }
         self.is_minimization = ModelProcessor.get_active_objective(model).sense == minimize
+        self.last_termination_info = None
+        self.infeasible_points = []
+        self.unbounded_points = []
 
     def solve_primal(self):
         # Solve the primal model
         try:
             z_primal, shadow_prices = self.solve_lp(self.model.clone(), {})
-        except ValueError as e:
-            totsu_logger.info("Primal model is not optimal", e)
-            return False  # Indicate failure
+            if z_primal is None:
+                totsu_logger.info("Primal model is not optimal or not feasible.")
+                return False
+        except Exception as e:
+            totsu_logger.info("Exception occurred while solving the primal model:", e)
+            return False
 
         # Identify significant constraints
         self.significant_constraints = self.get_significant_constraints(shadow_prices)
 
         if len(self.significant_constraints) == 1:
-            totsu_logger.error(f"More than one constraints are required for this visualization")
+            totsu_logger.error(f"More than one constraint is required for this visualization.")
             return False
 
         # Get original RHS values for significant constraints
@@ -63,7 +69,7 @@ class SensitivityAnalyzer:
             else:
                 self.b_original[constr_name] = value(constraint.body)
 
-        return True  # Indicate success
+        return True
 
     def solve_lp(self, model, rhs_adjustments):
         # Adjust RHS values of the constraints
@@ -71,25 +77,17 @@ class SensitivityAnalyzer:
             constraint = getattr(model, constr_name)
             expr = constraint.body
 
-            # Update the constraint with the new RHS value
             if constraint.equality:
-                # For equality constraints
                 constraint.set_value(expr == new_rhs)
             elif constraint.has_lb() and not constraint.has_ub():
-                # For constraints of the form expr >= lb
-                # Adjust the lower bound
                 constraint.set_value(expr >= new_rhs)
             elif constraint.has_ub() and not constraint.has_lb():
-                # For constraints of the form expr <= ub
-                # Adjust the upper bound
                 constraint.set_value(expr <= new_rhs)
             elif constraint.has_lb() and constraint.has_ub():
-                # For constraints of the form lb <= expr <= ub
-                # Decide which bound to adjust based on the original constraint
-                # Here, we assume adjusting the lower bound
+                # If it's a double-bounded constraint, assume adjusting lower bound for now.
                 constraint.set_value(inequality(new_rhs, expr, constraint.upper()))
             else:
-                # No bounds? Set as equality
+                # No explicit bounds? Set as equality.
                 constraint.set_value(expr == new_rhs)
 
         # Declare dual suffixes to get shadow prices
@@ -97,12 +95,15 @@ class SensitivityAnalyzer:
             model.del_component(model.dual)
         model.dual = Suffix(direction=Suffix.IMPORT)
 
-        # Solve the model using the given solver
         result = self.solver.solve(model, tee=False)
+
+        self.last_termination_info = (result.solver.status, result.solver.termination_condition)
 
         # Check solver status
         if (result.solver.status != SolverStatus.ok) or (result.solver.termination_condition != TerminationCondition.optimal):
-            raise ValueError("Solver did not find an optimal solution.")
+            # Return None to indicate no optimal solution
+            totsu_logger.warning("Solver did not find an optimal solution at given RHS adjustments.")
+            return None, {}
 
         # Get the objective value
         objective_value = result.solver.objective
@@ -121,7 +122,6 @@ class SensitivityAnalyzer:
 
         return objective_value, shadow_prices
 
-
     def get_significant_constraints(self, shadow_prices, num_constraints=2):
         # Sort constraints based on the absolute value of their dual variables
         sorted_constraints = sorted(shadow_prices.items(), key=lambda x: abs(x[1]), reverse=True)
@@ -134,36 +134,38 @@ class SensitivityAnalyzer:
         allowable_increase = 0.0
         allowable_decrease = 0.0
 
-        # Get the original shadow price and objective value
+        # Get the original shadow price and objective value at original point
         rhs_adjustments = {name: b_original_values[name] for name in other_constraints}
         rhs_adjustments[constraint_name] = b_original_value
         z_original, shadow_prices_original = self.solve_lp(model.clone(), rhs_adjustments)
-        original_shadow_price = shadow_prices_original[constraint_name]
+        if z_original is None:
+            totsu_logger.info(f"Could not find a valid solution at original point for {constraint_name}.")
+            return allowable_increase, allowable_decrease
+
+        original_shadow_price = shadow_prices_original.get(constraint_name, 0.0)
         original_objective = z_original
 
         # Check increase direction
         b = b_original_value
         iteration = 0
-        max_iterations = 1000  # Prevent infinite loops
+        max_iterations = 1000
         while iteration < max_iterations:
             iteration += 1
             b += delta
             rhs_adjustments[constraint_name] = b
-            try:
-                z_new, shadow_prices_new = self.solve_lp(model.clone(), rhs_adjustments)
-                new_shadow_price = shadow_prices_new.get(constraint_name, 0.0)
-                expected_objective = original_objective + original_shadow_price * (b - b_original_value)
-                if (abs(new_shadow_price - original_shadow_price) > 1e-5 or
-                    abs(z_new - expected_objective) > 1e-2):
-                    totsu_logger.debug(f"no more points for {constraint_name} in the increase direction beyond {b} at iteration {iteration}")
-                    totsu_logger.debug(f"original objective = {original_objective}, original shadow price = {original_shadow_price}, b original value = {b_original_value}")
-                    totsu_logger.debug(f"z_new = {z_new}, new shadow price = {new_shadow_price}, expected objective = {expected_objective}")
-                    break
-                allowable_increase = b - b_original_value
-            except:
-                raise
+            z_new, shadow_prices_new = self.solve_lp(model.clone(), rhs_adjustments)
+            if z_new is None:
+                # No further feasible/optimal solutions in this direction
+                break
+            new_shadow_price = shadow_prices_new.get(constraint_name, 0.0)
+            expected_objective = original_objective + original_shadow_price * (b - b_original_value)
+            if (abs(new_shadow_price - original_shadow_price) > 1e-5 or
+                abs(z_new - expected_objective) > 1e-2):
+                break
+            allowable_increase = b - b_original_value
+
         if iteration >= max_iterations:
-            totsu_logger.warning(f"gave up on calculating valid ranges in the increase direction")
+            totsu_logger.warning(f"Gave up on calculating valid increase range for {constraint_name}")
 
         # Check decrease direction
         b = b_original_value
@@ -174,21 +176,19 @@ class SensitivityAnalyzer:
             if b < 0:
                 b = 0
             rhs_adjustments[constraint_name] = b
-            try:
-                z_new, shadow_prices_new = self.solve_lp(model.clone(), rhs_adjustments)
-                new_shadow_price = shadow_prices_new.get(constraint_name, 0.0)
-                expected_objective = original_objective + original_shadow_price * (b - b_original_value)
-                if (abs(new_shadow_price - original_shadow_price) > 1e-5 or
-                    abs(z_new - expected_objective) > 1e-2):
-                    totsu_logger.debug(f"no more points for {constraint_name} in the decrease direction beyond {b} at iteration {iteration}")
-                    totsu_logger.debug(f"original objective = {original_objective}, original shadow price = {original_shadow_price}, b original value = {b_original_value}")
-                    totsu_logger.debug(f"z_new = {z_new}, new shadow price = {new_shadow_price}, expected objective = {expected_objective}")
-                    break
-                allowable_decrease = b_original_value - b
-            except:
-                raise
+            z_new, shadow_prices_new = self.solve_lp(model.clone(), rhs_adjustments)
+            if z_new is None:
+                # No further feasible/optimal solutions in this direction
+                break
+            new_shadow_price = shadow_prices_new.get(constraint_name, 0.0)
+            expected_objective = original_objective + original_shadow_price * (b - b_original_value)
+            if (abs(new_shadow_price - original_shadow_price) > 1e-5 or
+                abs(z_new - expected_objective) > 1e-2):
+                break
+            allowable_decrease = b_original_value - b
+
         if iteration >= max_iterations:
-            totsu_logger.warning(f"gave up on calculating valid ranges in the decrease direction")
+            totsu_logger.warning(f"Gave up on calculating valid decrease range for {constraint_name}")
 
         return allowable_increase, allowable_decrease
 
@@ -214,6 +214,7 @@ class SensitivityAnalyzer:
         constr_indices = {name: idx for idx, name in enumerate(significant_constraints)}
 
         # Iterate over the grid and solve LP at each point
+        x_constr, y_constr = self.significant_constraints
         for idx in np.ndindex(B[0].shape):
             if self.stop_computation:
                 totsu_logger.info("Computation stopped by user.")
@@ -222,12 +223,19 @@ class SensitivityAnalyzer:
             rhs_adjustments = {}
             for constr_name in significant_constraints:
                 rhs_adjustments[constr_name] = B[constr_indices[constr_name]][idx]
-            try:
-                Z_value, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
-                totsu_logger.debug(f"z = {Z_value} for {rhs_adjustments}")
-                Z[idx] = Z_value
-            except:
-                Z[idx] = np.nan  # Infeasible solution
+            z_value, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
+            if z_value is None:
+                # Determine if it is infeasible or unbounded by checking solver conditions
+                # Assume you've modified solve_lp to return termination condition
+                # For illustration:
+                status, term_cond = self.last_termination_info
+                if term_cond == TerminationCondition.infeasible:
+                    self.infeasible_points.append((B[constr_indices[x_constr]][idx], B[constr_indices[y_constr]][idx]))
+                elif term_cond == TerminationCondition.unbounded:
+                    self.unbounded_points.append((B[constr_indices[x_constr]][idx], B[constr_indices[y_constr]][idx]))
+                Z[idx] = np.nan
+            else:
+                Z[idx] = z_value
             processed_points += 1
             self.computation_data["progress"] = processed_points / total_points * 100
 
@@ -237,13 +245,18 @@ class SensitivityAnalyzer:
 
         # Compute valid ranges for each significant constraint
         for constr_name in significant_constraints:
-            allowable_increase, allowable_decrease = self.compute_valid_range(
-                self.model, constr_name, b_original[constr_name], significant_constraints, b_original
-            )
-            self.computation_data['valid_ranges'][constr_name] = [
-                b_original[constr_name] - allowable_decrease,
-                b_original[constr_name] + allowable_increase
-            ]
+            try:
+                allowable_increase, allowable_decrease = self.compute_valid_range(
+                    self.model, constr_name, b_original[constr_name], significant_constraints, b_original
+                )
+                self.computation_data['valid_ranges'][constr_name] = [
+                    b_original[constr_name] - allowable_decrease,
+                    b_original[constr_name] + allowable_increase
+                ]
+            except Exception as e:
+                totsu_logger.warning(f"Could not compute valid range for {constr_name}: {e}")
+                # If we fail, set the range as the original only
+                self.computation_data['valid_ranges'][constr_name] = [b_original[constr_name], b_original[constr_name]]
 
         totsu_logger.info("Computation completed.")
         self.computation_data["completed"] = True
@@ -260,22 +273,21 @@ class SensitivityAnalyzer:
             y_current = y_start
 
             for _ in range(num_steps):
-                # Solve LP at the current point
-                try:
-                    z_current, shadow_prices = self.solve_lp(
-                        self.model.clone(), {x_constr: x_current, y_constr: y_current}
-                    )
-                    x_values.append(x_current)
-                    y_values.append(y_current)
-                    z_values.append(z_current)
-                except:
-                    break  # Cannot solve LP at this point
+                z_current, shadow_prices = self.solve_lp(
+                    self.model.clone(), {x_constr: x_current, y_constr: y_current}
+                )
+                if z_current is None:
+                    # Cannot solve LP at this point
+                    break
+                x_values.append(x_current)
+                y_values.append(y_current)
+                z_values.append(z_current)
 
                 # Get the shadow prices
                 shadow_price_x = shadow_prices.get(x_constr, 0.0)
                 shadow_price_y = shadow_prices.get(y_constr, 0.0)
 
-                # Define the direction vector based on shadow prices
+                # Define direction vector based on shadow prices
                 gradient = np.array([shadow_price_x, shadow_price_y])
                 if self.is_minimization:
                     gradient = -gradient
@@ -305,18 +317,13 @@ class SensitivityAnalyzer:
         x_start = self.b_original[x_constr]
         y_start = self.b_original[y_constr]
 
-        # Trace in the positive direction
+        # Trace in both directions
         x_vals_pos, y_vals_pos, z_vals_pos = trace_path(x_start, y_start, step_size, direction_multiplier=1)
-
-        # Trace in the negative direction
         x_vals_neg, y_vals_neg, z_vals_neg = trace_path(x_start, y_start, step_size, direction_multiplier=-1)
 
-        # Combine the paths (excluding the starting point in one to avoid duplication)
         x_values = x_vals_neg[::-1][:-1] + x_vals_pos
         y_values = y_vals_neg[::-1][:-1] + y_vals_pos
         z_values = z_vals_neg[::-1][:-1] + z_vals_pos
-
-        totsu_logger.debug(f"length of x,y,z values = {len(x_values)}, {len(y_values)}, {len(z_values)}")
 
         if len(x_values) < 2:
             return None, None, None, "Too few points"
@@ -358,8 +365,6 @@ class SensitivityAnalyzer:
             ]
         )
 
-        # Callbacks are defined within this method to access 'self'
-
         @app.callback(
             Output("progress-output", "children"),
             [Input("interval-component", "n_intervals")],
@@ -376,7 +381,7 @@ class SensitivityAnalyzer:
         @app.callback(
             Output("lp-graph", "figure"),
             [Input("interval-component", "n_intervals"),
-            Input("computation-status", "data")],
+             Input("computation-status", "data")],
             [State("lp-graph", "figure")]
         )
         def update_graph(n, computation_status, current_fig):
@@ -385,11 +390,9 @@ class SensitivityAnalyzer:
 
                 # Unpack significant constraints
                 x_constr, y_constr = self.significant_constraints
-
-                # Define constr_indices here
                 constr_indices = {name: idx for idx, name in enumerate(self.significant_constraints)}
 
-                # Extract B and Z from computation_data
+                # Extract B and Z
                 B = self.computation_data["B"]
                 Z = self.computation_data["Z"]
                 x_values = B[constr_indices[x_constr]]
@@ -398,7 +401,7 @@ class SensitivityAnalyzer:
                 # Clear existing data
                 fig.data = []
 
-                # Add the surface plot
+                # Add surface
                 surface = go.Surface(
                     x=x_values,
                     y=y_values,
@@ -407,14 +410,14 @@ class SensitivityAnalyzer:
                     showscale=True,
                     colorbar=dict(title="Objective Value"),
                     name="Objective Value Surface",
-                    opacity=0.8,  # Set opacity to 80%
+                    opacity=0.8,
                     hovertemplate=f"{x_constr} RHS: %{{x:.1f}}<br>"
-                                f"{y_constr} RHS: %{{y:.1f}}<br>"
-                                f"Z: %{{z:.2f}}<extra></extra>",
+                                  f"{y_constr} RHS: %{{y:.1f}}<br>"
+                                  f"Z: %{{z:.2f}}<extra></extra>",
                 )
                 fig.add_trace(surface)
 
-                # Add the initial ridge line (empty data)
+                # Add empty ridge line and marker
                 ridge_line = go.Scatter3d(
                     x=[],
                     y=[],
@@ -426,7 +429,6 @@ class SensitivityAnalyzer:
                 )
                 fig.add_trace(ridge_line)
 
-                # Add the initial marker (empty data)
                 ridge_marker = go.Scatter3d(
                     x=[],
                     y=[],
@@ -438,7 +440,7 @@ class SensitivityAnalyzer:
                 )
                 fig.add_trace(ridge_marker)
 
-                # Update axis ranges based on data
+                # Axis ranges
                 x_min = np.nanmin(x_values)
                 x_max = np.nanmax(x_values)
                 y_min = np.nanmin(y_values)
@@ -450,16 +452,16 @@ class SensitivityAnalyzer:
                         yaxis=dict(title=f"{y_constr} RHS Value", range=[y_min, y_max]),
                         zaxis=dict(title="Objective Value (Z)"),
                     ),
-                    uirevision='data_changed',  # Preserve user interactions
+                    uirevision='data_changed',
                 )
 
-                # Original RHS values
+                # Original point
                 x_original = self.b_original[x_constr]
                 y_original = self.b_original[y_constr]
                 rhs_adjustments = {x_constr: x_original, y_constr: y_original}
-                Z_original, _ = self.solve_lp(self.model.clone(), rhs_adjustments)  # Use 'model' instead of 'primal_model'
+                Z_original, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
 
-                # Plot valid range for x_constr
+                # Valid ranges
                 valid_range_x = self.computation_data['valid_ranges'].get(x_constr)
                 if valid_range_x and valid_range_x[0] != valid_range_x[1]:
                     x_line = np.linspace(valid_range_x[0], valid_range_x[1], 100)
@@ -467,11 +469,9 @@ class SensitivityAnalyzer:
                     Z_x_line = []
                     for x_val in x_line:
                         rhs_adjustments = {x_constr: x_val, y_constr: y_const}
-                        try:
-                            z, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
-                            Z_x_line.append(z)
-                        except:
-                            Z_x_line.append(np.nan)
+                        z_val, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
+                        Z_x_line.append(np.nan if z_val is None else z_val)
+
                     line = go.Scatter3d(
                         x=x_line,
                         y=[y_const]*len(x_line),
@@ -485,7 +485,6 @@ class SensitivityAnalyzer:
                 else:
                     totsu_logger.info(f"No valid range for {x_constr} to plot.")
 
-                # Plot valid range for y_constr
                 valid_range_y = self.computation_data['valid_ranges'].get(y_constr)
                 if valid_range_y and valid_range_y[0] != valid_range_y[1]:
                     y_line = np.linspace(valid_range_y[0], valid_range_y[1], 100)
@@ -493,11 +492,9 @@ class SensitivityAnalyzer:
                     Z_y_line = []
                     for y_val in y_line:
                         rhs_adjustments = {x_constr: x_const, y_constr: y_val}
-                        try:
-                            z, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
-                            Z_y_line.append(z)
-                        except:
-                            Z_y_line.append(np.nan)
+                        z_val, _ = self.solve_lp(self.model.clone(), rhs_adjustments)
+                        Z_y_line.append(np.nan if z_val is None else z_val)
+
                     line = go.Scatter3d(
                         x=[x_const]*len(y_line),
                         y=y_line,
@@ -511,51 +508,68 @@ class SensitivityAnalyzer:
                 else:
                     totsu_logger.info(f"No valid range for {y_constr} to plot.")
 
-                # Optimal point (original capacities)
-                optimal_point = go.Scatter3d(
-                    x=[x_original],
-                    y=[y_original],
-                    z=[Z_original],
-                    mode='markers+text',
-                    name='Optimal Solution',
-                    marker=dict(color='black', size=6, symbol='circle'),
-                    text=['Optimal Solution'],
-                    textposition='top center',
-                    hovertemplate=f"Optimal Solution<br>{x_constr} RHS: %{{x}}<br>{y_constr} RHS: %{{y}}<br>Z: %{{z}}<extra></extra>"
-                )
-                fig.add_trace(optimal_point)
+                # Optimal point
+                if Z_original is not None:
+                    optimal_point = go.Scatter3d(
+                        x=[x_original],
+                        y=[y_original],
+                        z=[Z_original],
+                        mode='markers+text',
+                        name='Optimal Solution',
+                        marker=dict(color='black', size=6, symbol='circle'),
+                        text=['Optimal Solution'],
+                        textposition='top center',
+                        hovertemplate=f"Optimal Solution<br>{x_constr} RHS: %{{x}}<br>{y_constr} RHS: %{{y}}<br>Z: %{{z}}<extra></extra>"
+                    )
+                    fig.add_trace(optimal_point)
 
-                # Compute and plot the ridge/valley line
+                # After computing all points
+                x_infeas = [pt[0] for pt in self.infeasible_points]
+                y_infeas = [pt[1] for pt in self.infeasible_points]
+                # Choose a baseline z to plot these points, e.g., min(Z) - 10
+                baseline_z = np.nanmin(Z) - 10 if np.nanmin(Z) != np.nan else 0
+                z_infeas = [baseline_z]*len(self.infeasible_points)
+
+                infeasible_trace = go.Scatter3d(
+                    x=x_infeas,
+                    y=y_infeas,
+                    z=z_infeas,
+                    mode='markers',
+                    name='Infeasible Region',
+                    marker=dict(size=5, color='red', symbol='x'),
+                    hovertemplate="Infeasible at<br>x: %{x}<br>y: %{y}<extra></extra>"
+                )
+                fig.add_trace(infeasible_trace)
+
+                # Compute ridge line
                 x_ridge, y_ridge, z_ridge, ridge_error = self.compute_ridge_line(x_min, x_max, y_min, y_max)
-                if ridge_error is None:
-                    # Create frames for the animation
+                if ridge_error is None and x_ridge is not None:
                     frames = []
                     for i in range(len(x_ridge)):
-                        frame = go.Frame(
-                            data=[
-                                # Update ridge line (trace index 1)
-                                dict(
-                                    x=x_ridge[:i + 1],
-                                    y=y_ridge[:i + 1],
-                                    z=z_ridge[:i + 1],
-                                    mode='lines',
-                                    line=dict(color='green', width=8),
-                                    type='scatter3d',
-                                ),
-                                # Update marker (trace index 2)
-                                dict(
-                                    x=[x_ridge[i]],
-                                    y=[y_ridge[i]],
-                                    z=[z_ridge[i]],
-                                    mode='markers',
-                                    marker=dict(size=2, color='green'),
-                                    type='scatter3d',
-                                )
-                            ],
-                            traces=[1, 2],  # Indices of the traces being updated
-                            name=str(i)
+                        frames.append(
+                            go.Frame(
+                                data=[
+                                    dict(
+                                        x=x_ridge[:i + 1],
+                                        y=y_ridge[:i + 1],
+                                        z=z_ridge[:i + 1],
+                                        mode='lines',
+                                        line=dict(color='green', width=8),
+                                        type='scatter3d'
+                                    ),
+                                    dict(
+                                        x=[x_ridge[i]],
+                                        y=[y_ridge[i]],
+                                        z=[z_ridge[i]],
+                                        mode='markers',
+                                        marker=dict(size=2, color='green'),
+                                        type='scatter3d'
+                                    )
+                                ],
+                                traces=[1, 2],
+                                name=str(i)
+                            )
                         )
-                        frames.append(frame)
 
                     fig.frames = frames
 
@@ -565,12 +579,12 @@ class SensitivityAnalyzer:
                                 type='buttons',
                                 buttons=[
                                     dict(label='Play',
-                                        method='animate',
-                                        args=[None, {'frame': {'duration': 100, 'redraw': True},
-                                                    'fromcurrent': True}]),
+                                         method='animate',
+                                         args=[None, {'frame': {'duration': 100, 'redraw': True},
+                                                      'fromcurrent': True}]),
                                     dict(label='Pause',
-                                        method='animate',
-                                        args=[[None], {'frame': {'duration': 0, 'redraw': True},
+                                         method='animate',
+                                         args=[[None], {'frame': {'duration': 0, 'redraw': True},
                                                         'mode': 'immediate',
                                                         'transition': {'duration': 0}}])
                                 ],
@@ -594,10 +608,10 @@ class SensitivityAnalyzer:
         @app.callback(
             Output("computation-status", "data"),
             [Input("start-button", "n_clicks"),
-            Input("stop-button", "n_clicks"),
-            Input("interval-component", "n_intervals")],
+             Input("stop-button", "n_clicks"),
+             Input("interval-component", "n_intervals")],
             [State({'type': 'range-slider', 'index': ALL}, 'value'),
-            State('computation-status', 'data')]
+             State('computation-status', 'data')]
         )
         def control_computation(start_clicks, stop_clicks, n_intervals, slider_values, computation_status):
             ctx = dash.callback_context
@@ -615,9 +629,8 @@ class SensitivityAnalyzer:
                     self.computation_data["progress"] = 0
                     self.computation_data["completed"] = False
                     self.computation_data["valid_ranges"] = {}
-                    # Build a dictionary of percentage ranges for each constraint
+                    # Build percentage range dictionary
                     b_range_percentages = {}
-                    # Retrieve the constraint names from the slider IDs
                     for i, constr_name in enumerate(self.significant_constraints):
                         b_range_percentages[constr_name] = slider_values[i]
                     self.computation_thread = threading.Thread(
@@ -645,7 +658,6 @@ class SensitivityAnalyzer:
 
     def create_initial_figure(self):
         x_constr, y_constr = self.significant_constraints
-
         fig = go.Figure()
         fig.update_layout(
             title="Objective Value Exploration",
@@ -656,6 +668,6 @@ class SensitivityAnalyzer:
             ),
             margin=dict(l=0, r=0, b=0, t=30),
             legend=dict(x=0.7, y=0.9),
-            uirevision='data_changed',  # Preserve user interactions
+            uirevision='data_changed',
         )
         return fig
