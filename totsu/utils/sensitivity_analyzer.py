@@ -44,7 +44,8 @@ class SensitivityAnalyzer:
     def solve_primal(self):
         # Solve the primal model
         try:
-            z_primal, shadow_prices = self.solve_lp(self.model.clone(), {})
+            model = self.model.clone()
+            z_primal, shadow_prices = self.solve_lp(model, {})
             if z_primal is None:
                 totsu_logger.info("Primal model is not optimal or not feasible.")
                 return False
@@ -61,7 +62,7 @@ class SensitivityAnalyzer:
 
         # Get original RHS values for significant constraints
         for constr_name in self.significant_constraints:
-            constraint = self.get_constraint_by_name(constr_name)
+            constraint = self.get_constraint_by_name(model, constr_name)
             if constraint.has_ub():
                 self.b_original[constr_name] = constraint.upper()
             elif constraint.has_lb():
@@ -74,7 +75,7 @@ class SensitivityAnalyzer:
     def solve_lp(self, model, rhs_adjustments):
         # Adjust RHS values of the constraints
         for constr_name, new_rhs in rhs_adjustments.items():
-            constraint = self.get_constraint_by_name(constr_name)
+            constraint = self.get_constraint_by_name(model, constr_name)
             expr = constraint.body
 
             if constraint.equality:
@@ -129,16 +130,16 @@ class SensitivityAnalyzer:
         significant_constraints = [name for name, value in sorted_constraints[:num_constraints]]
         return significant_constraints
 
-    def get_constraint_by_name(self, name):
+    def get_constraint_by_name(self, model, name):
         if '[' in name and ']' in name:
             # It's likely a ConstraintList item
             base_name, index_str = name.split('[', 1)
             index = int(index_str.replace(']', ''))
-            constraint_list = getattr(self.model, base_name)
+            constraint_list = getattr(model, base_name)
             return constraint_list[index]
         else:
             # It's a regular constraint or block attribute
-            return getattr(self.model, name)
+            return getattr(model, name)
 
     def compute_valid_range(self, model, constraint_name, b_original_value, other_constraints, b_original_values, delta=1.0):
         # Initialize variables
