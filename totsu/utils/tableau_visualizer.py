@@ -17,11 +17,11 @@ class TableauVisualizer:
         """Solves the model and stores tableau history for visualization."""
         try:
             solution = self.solver.solve(self.model)
-            self.history = self.solver.get_history()
-            self.setup_dash_layout()
         except Exception as e:
             totsu_logger.error(f"Error solving model: {e}")
-            raise  # Re-raise the exception after logging
+        finally:
+            self.history = self.solver.get_history()
+            self.setup_dash_layout()
 
     def show_tableau_visualization(self):
         """Launches the Dash app for tableau visualization."""
