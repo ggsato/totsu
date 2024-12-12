@@ -204,7 +204,7 @@ class ModelStandardizer:
         # Create the new equality constraint
         new_expr = expr + artificial_var == rhs
 
-        totsu_logger.debug(f"handled ge constraint and added {artificial_var}")
+        totsu_logger.debug(f"handled equality constraint and added {artificial_var}")
 
         return Constraint(expr=new_expr), artificial_var
 
