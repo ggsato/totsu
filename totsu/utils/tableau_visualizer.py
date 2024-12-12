@@ -252,6 +252,7 @@ class TableauVisualizer:
         aligned_ratios_reversed = aligned_ratios[::-1]
         colors_leaving = ['#1f77b4' if i == pivot_row else '#cccccc' for i in range(len(basic_var_names))]
         colors_leaving_reversed = colors_leaving[::-1]
+        tableau_reversed = (tableau[:-1])[::-1]
 
         # Create a subplot figure with 3 columns and 2 rows
         fig = make_subplots(
@@ -325,11 +326,11 @@ class TableauVisualizer:
         # -- Tableau Heatmap --
         fig.add_trace(
             go.Heatmap(
-                z=tableau,
+                z=tableau_reversed,
                 x=variables,
                 y=basic_var_names_reversed,
                 colorscale="Viridis",
-                text=tableau.round(2),
+                text=tableau_reversed.round(2),
                 hoverinfo="text",
                 colorbar=dict(title="Values"),
                 showscale=True
