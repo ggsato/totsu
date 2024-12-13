@@ -95,7 +95,7 @@ class Tableau:
                 self.basis_vars.append(idx)
             else:
                 self.non_basis_vars.append(idx)
-        totsu_logger.debug(f"initial basis_bars = {self.basis_vars}")
+        totsu_logger.debug(f"initial basis_vars = {self.basis_vars}")
 
     def construct_tableau(self):
         num_constraints = len(self.constraints)
@@ -248,6 +248,10 @@ class Tableau:
     def is_optimal(self):
         if self.updated_tableau is None:
             # We are in Phase I
+            # For an equality constraint with rhs = 0, the initial tableau can be optimal
+            # This check prevents premature optimality in Phase I
+            if self.select_pivot_column(1) is not None:
+                return False
             """
             1. **Feasibility of the Solution**:
             - The Phase I objective value is zero (within numerical tolerance).
@@ -261,7 +265,7 @@ class Tableau:
             if abs(objective_value) > 1e-8:
                 return False  # Not optimal yet
             
-            # Optionally check artificial variables' values
+            # Check artificial variables' values
             var_name_to_index = self.var_name_to_index()
             artificial_indices = [var_name_to_index[var.name] for var in self.artificial_vars]
             
@@ -277,7 +281,7 @@ class Tableau:
             if any(abs(value) > 1e-8 for value in artificial_values):
                 return False  # Artificial variables have positive values
 
-            totsu_logger.debug(f"Is optimal. objective_value = {objective_value}, artificial_values = {artificial_values}")
+            totsu_logger.debug(f"Is optimal. objective_value = {objective_value}, artificial_values = {artificial_values}, artificial_indices = {artificial_indices}")
             return True   # Optimality achieved in Phase I
         else:
             # Standard optimality condition for Phase II

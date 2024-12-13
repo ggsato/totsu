@@ -127,7 +127,7 @@ if __name__ == "__main__":
         solver = SuperSimplexSolver()
         solution = solver.solve(model)
 
-        print(f"objective value = {solver.get_current_objective_value()}") # 402.15? (402.17)
+        print(f"objective value = {solver.get_current_objective_value()}") # 404.17
         print(f"x1 = {solution["x1"]:.2f}") # 9.17
         print(f"x2 = {solution["x2"]:.2f}") # 8.33
         print(f"x3 = {solution["x3"]:.2f}") # 0

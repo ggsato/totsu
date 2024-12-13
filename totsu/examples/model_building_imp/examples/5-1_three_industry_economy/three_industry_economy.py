@@ -93,7 +93,7 @@ if __name__ == "__main__":
         solver = SuperSimplexSolver()
         solution = solver.solve(model)
 
-        print(f"objective value = {solver.get_current_objective_value()}") # 146.60087719298247
+        print(f"objective value = {solver.get_current_objective_value()}") # 126.62
 
         # 6 variables under 4 constraints lead to two zeros
         print(f"xc1 = {solution["x_c1"]:.2f}") # 56.07

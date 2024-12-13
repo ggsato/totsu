@@ -155,7 +155,13 @@ class ModelStandardizer:
             elif lb is not None:
                 # Greater-than-or-equal-to constraint
                 rhs = lb
-                new_con, artificial_var = self.handle_ge_constraint(expr, rhs)
+                if abs(rhs) > 1e-8:
+                    new_con, artificial_var = self.handle_ge_constraint(expr, rhs)
+                else:
+                    # Transform `ge` into `le` by multiplying both sides by -1
+                    expr = -expr
+                    rhs = -lb
+                    new_con = self.handle_le_constraint(expr, rhs)
             else:
                 raise ValueError("Constraint without bounds encountered.")
             

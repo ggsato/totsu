@@ -76,7 +76,9 @@ if __name__ == "__main__":
                 if model.flow[i, j].value > 0:
                     print(f"Flow from {i} to {j}: {model.flow[i, j].value}")
         else:
-            print(f"objective value = {solver.get_current_objective_value()}")     
+            print(f"objective value = {solver.get_current_objective_value()}")
+            for (m, n) in model.arcs:
+                print(f"flow[{m}][{n}] = {solution[f"flow[{m},{n}]"]:.2f}")
 
     except Exception as ex:
         traceback.print_exception(ex)
