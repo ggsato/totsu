@@ -58,21 +58,25 @@ if __name__ == "__main__":
     import sys, traceback
     try:
         print("solving the model")
+        use_glpk = False
         model = create_model()
         model.pprint()
-        solver = SuperSimplexSolver()
-        #solver = SolverFactory("glpk")
+        if use_glpk:
+            solver = SolverFactory("glpk")
+        else:
+            solver = SuperSimplexSolver()
+
         solution = solver.solve(model)
 
-
-
-        #print(f"objective value = {solver.get_current_objective_value()}") # 
-
-        # Print results
-        print("Optimal Flows:")
-        for (i, j) in model.arcs:
-            if model.flow[i, j].value > 0:
-                print(f"Flow from {i} to {j}: {model.flow[i, j].value}")
+        if use_glpk:
+            print(f"objective value = {model.objective()}")
+            # Print results
+            print("Optimal Flows:")
+            for (i, j) in model.arcs:
+                if model.flow[i, j].value > 0:
+                    print(f"Flow from {i} to {j}: {model.flow[i, j].value}")
+        else:
+            print(f"objective value = {solver.get_current_objective_value()}")     
 
     except Exception as ex:
         traceback.print_exception(ex)

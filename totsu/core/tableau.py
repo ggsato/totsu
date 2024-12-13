@@ -5,6 +5,8 @@ from pyomo.environ import (
 from pyomo.repn import generate_standard_repn
 from ..utils.logger import totsu_logger
 
+ARTIFICIAL_MARKER = -1
+
 class Tableau:
     def __init__(self, standardizer):
         self.standardizer = standardizer # Be careful in phase 2 because it is not synchronized
@@ -154,9 +156,9 @@ class Tableau:
             if not eligible_cols:
                 totsu_logger.debug(f"No eligible pivot columns found in Phase {phase}.")
                 return None  # No eligible columns
-            # Bland's Rule: Choose the smallest index among eligible pivot columns
-            col = int(min(eligible_cols))
-            #totsu_logger.debug(f"{col} was selected by select_pivot_column (phase {phase})")
+            # Determine which eligible column has the smallest value in the objective row.
+            obj_values = objective_row[eligible_cols]
+            col = eligible_cols[np.argmin(obj_values)]  # choose the column with the minimum objective value
             return col
         elif phase == 2:
             col = self.select_pivot_column_phase2()
@@ -164,7 +166,8 @@ class Tableau:
             return col
         
     def select_pivot_column_phase2(self):
-        min_value = np.min(self.tableau[-1, :-1])
+        objective_row = self.tableau[-1, :-1]
+        min_value = np.min(objective_row)
         if min_value >= -1e-8:
             return None
         pivot_cols = np.where(self.tableau[-1, :-1] < -1e-8)[0]
@@ -178,8 +181,11 @@ class Tableau:
         # No upper bounds check required.
         # The standard simplex method assumes variables are non-negative and unbounded above (i.e., have infinite upper bounds).
 
-        # Bland's Rule: Choose the smallest index among eligible pivot columns
-        return int(min(eligible_cols))
+        # Choose the column with the most negative coefficient
+        obj_values = objective_row[eligible_cols]
+        col = eligible_cols[np.argmin(obj_values)]
+        totsu_logger.debug(f"The column of the most negative coefficient out of [{obj_values}/{eligible_cols}] is {col}")
+        return int(col)
 
     def select_pivot_row(self, pivot_col):
         # Apply the minimum ratio test
@@ -236,7 +242,7 @@ class Tableau:
         totsu_logger.debug(f"Pivoting: Row {pivot_row}, Column {pivot_col}")
         totsu_logger.debug(f"Leaving variable: {index_to_var_name[leaving_var_idx]}")
         totsu_logger.debug(f"Entering variable: {index_to_var_name[entering_var_idx]}")
-        totsu_logger.debug(f"After pivot, basis_vars: {[index_to_var_name[idx] for idx in self.basis_vars]} by name, {self.basis_vars} by idx")
+        totsu_logger.debug(f"After pivot, basis_vars: {[index_to_var_name[idx] for idx in self.basis_vars if idx != ARTIFICIAL_MARKER]} by name, {self.basis_vars} by idx")
         totsu_logger.debug(f"Tableau after pivot operation:\n{self.tableau}")
 
     def is_optimal(self):
@@ -271,9 +277,9 @@ class Tableau:
             if any(abs(value) > 1e-8 for value in artificial_values):
                 return False  # Artificial variables have positive values
             
-            # Check if any artificial variables remain in the basis
-            if artificial_in_basis:
-                return False  # Artificial variables remain in the basis
+            # Check if any artificial variables remain in the basis ==> Optimal if objective value is zero!
+            #if artificial_in_basis:
+            #    return False  # Artificial variables remain in the basis
 
             totsu_logger.debug(f"Is optimal. objective_value = {objective_value}, artificial_values = {artificial_values}")
             return True   # Optimality achieved in Phase I
@@ -400,16 +406,15 @@ class Tableau:
                 old_index_to_new_index[old_idx] = new_idx
                 new_idx += 1
             else:
-                pass  # Skip artificial variables
+                old_index_to_new_index[old_idx] = ARTIFICIAL_MARKER
 
         # Update basis and non-basis variables lists
-        # Remove indices corresponding to artificial variables
-        self.basis_vars = [var_idx for var_idx in self.basis_vars if var_idx in old_index_to_new_index]
-        self.non_basis_vars = [var_idx for var_idx in self.non_basis_vars if var_idx in old_index_to_new_index]
+        # Replace indices corresponding to artificial variables with the marker
+        self.basis_vars = [old_index_to_new_index.get(var_idx, ARTIFICIAL_MARKER) for var_idx in self.basis_vars]
+        self.non_basis_vars = [old_index_to_new_index.get(var_idx, ARTIFICIAL_MARKER) for var_idx in self.non_basis_vars]
 
-        # Adjust indices to match the updated variables list
-        self.basis_vars = [old_index_to_new_index[var_idx] for var_idx in self.basis_vars]
-        self.non_basis_vars = [old_index_to_new_index[var_idx] for var_idx in self.non_basis_vars]
+        # Remove the marker from non_basis_vars
+        self.non_basis_vars = [var_idx for var_idx in self.non_basis_vars if var_idx != ARTIFICIAL_MARKER]
 
         # Update variables list
         self.variables = new_variables
@@ -420,6 +425,8 @@ class Tableau:
         num_variables = len(self.variables)
         index_to_var_name = self.index_to_var_name()
         for i, basic_var_idx in enumerate(self.basis_vars):
+            if basic_var_idx == ARTIFICIAL_MARKER:
+                continue
             var_name = index_to_var_name[basic_var_idx]
             value = self.tableau[i, -1]
             solution[var_name] = value

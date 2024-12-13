@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from pyomo.environ import SolverFactory
 from ..utils.logger import totsu_logger
+from ..core.tableau import ARTIFICIAL_MARKER
 
 class TableauVisualizer:
     def __init__(self, model, solver):
@@ -233,7 +234,7 @@ class TableauVisualizer:
         phase = snapshot["phase"]
 
         # -- Basic Variable Names --
-        basic_var_names = [variables[idx] for idx in basic_var_indices]
+        basic_var_names = ["REMOVED" if idx == ARTIFICIAL_MARKER else variables[idx] for idx in basic_var_indices]
 
         # -- Entering Variable Bar Chart Data --
         colors_entering = ['green' if coef >= 0 else 'red' for coef in objective_row]
@@ -413,7 +414,7 @@ class TableauVisualizer:
         if selected_iteration > 0 and pivot_row is not None:
             prev_snapshot = self.history[selected_iteration - 1]
             prev_basic_var_indices = prev_snapshot['basis_vars']
-            prev_basic_var_names = [variables[idx] for idx in prev_basic_var_indices]
+            prev_basic_var_names = ["REMOVED" if idx == ARTIFICIAL_MARKER else variables[idx] for idx in prev_basic_var_indices]
             leaving_var = prev_basic_var_names[pivot_row]
         else:
             leaving_var = "None"
