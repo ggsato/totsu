@@ -276,10 +276,6 @@ class Tableau:
 
             if any(abs(value) > 1e-8 for value in artificial_values):
                 return False  # Artificial variables have positive values
-            
-            # Check if any artificial variables remain in the basis ==> Optimal if objective value is zero!
-            #if artificial_in_basis:
-            #    return False  # Artificial variables remain in the basis
 
             totsu_logger.debug(f"Is optimal. objective_value = {objective_value}, artificial_values = {artificial_values}")
             return True   # Optimality achieved in Phase I
