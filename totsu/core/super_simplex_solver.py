@@ -114,13 +114,7 @@ class SuperSimplexSolver:
         return self._tableau.compute_reduced_costs(y)
 
     def extract_solution(self):
-        # tableau solution does not contain fixed variables
-        tableau_solution =  self._tableau.extract_solution()
-        # add fixed variables
-        for var in self._tableau.original_variables:
-            if var.fixed:
-                tableau_solution[var.name] = var.value
-        totsu_logger.debug(f"Extracted solution: {tableau_solution}")
+        solution =  self._tableau.extract_solution()
         # Store the solution in the model
-        ModelProcessor.set_variable_values(self.model, tableau_solution)
-        return tableau_solution
+        ModelProcessor.set_variable_values(self.model, solution)
+        return solution

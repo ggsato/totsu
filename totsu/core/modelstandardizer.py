@@ -273,3 +273,10 @@ class ModelStandardizer:
             if 'slack' not in var.name and 'surplus' not in var.name and 'artificial' not in var.name
         ]
         return original_var_indices
+
+    def post_process_solution(self, solution):
+        # Post-process the solution
+        # 1. Add fixed variables
+        for var in self.original_variables:
+            if var.fixed:
+                solution[var.name] = var.value
