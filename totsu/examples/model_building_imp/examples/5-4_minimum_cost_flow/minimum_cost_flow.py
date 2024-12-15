@@ -139,7 +139,7 @@ def create_minimal_fixed_variable_model():
     model.eq = Constraint(expr=model.flow_1 + model.flow_2 == 2)
 
     # Define objective
-    model.obj = Objective(expr=model.flow_1, sense=minimize)
+    model.objective = Objective(expr=model.flow_1, sense=minimize)
 
     return model
 
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     try:
         print("solving the model")
         use_glpk = False
-        model = create_minimal_fixed_variable_model()
+        model = create_minimum_model2()
         model.pprint()
         if use_glpk:
             solver = SolverFactory("glpk")
@@ -165,7 +165,8 @@ if __name__ == "__main__":
                 if model.flow[i, j].value > 0:
                     print(f"Flow from {i} to {j}: {model.flow[i, j].value}")
         else:
-            print(f"objective value = {solver.get_current_objective_value()}")
+            print(f"tableau objective value = {solver.get_current_objective_value()}")
+            print(f"final objective value = {model.objective()}")
             for var in solution:
                 print(f"{var}: {solution[var]}")
 

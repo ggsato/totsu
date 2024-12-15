@@ -121,4 +121,6 @@ class SuperSimplexSolver:
             if var.fixed:
                 tableau_solution[var.name] = var.value
         totsu_logger.debug(f"Extracted solution: {tableau_solution}")
+        # Store the solution in the model
+        ModelProcessor.set_variable_values(self.model, tableau_solution)
         return tableau_solution
