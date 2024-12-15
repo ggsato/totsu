@@ -13,6 +13,7 @@ class ModelStandardizer:
         self.variables = None
         self.constraints = None
         self.objective = None
+        self.original_variables = None
         self.original_objective = None
         self.original_constraints = None
         self.artificial_vars = []
@@ -51,6 +52,7 @@ class ModelStandardizer:
 
             # Handle fixed variables (lb == ub)
             if lb is not None and ub is not None and abs(lb - ub) <= 1e-8:
+                # This is a free variable
                 var.fix(lb)
                 totsu_logger.debug(f"Variable '{var.name}' is fixed at {lb}")
 
@@ -130,6 +132,8 @@ class ModelStandardizer:
             vars_in_con = repn.linear_vars
             coefs_in_con = repn.linear_coefs
             constant = value(repn.constant)
+
+            totsu_logger.debug(f"Processing constraint '{con.name}' with variables {vars_in_con} and coefficients {coefs_in_con} and constant {constant}")
             
             lb = value(con.lower) - constant if con.has_lb() else None
             ub = value(con.upper) - constant if con.has_ub() else None
@@ -172,7 +176,14 @@ class ModelStandardizer:
         
         # Update the list of constraints and variables
         self.constraints = new_constraints
-        self.variables = list(ModelProcessor.get_variables(self.standard_model))
+        self.original_variables = self.variables
+        decision_variables = []
+        for var in list(ModelProcessor.get_variables(self.standard_model)):
+            if var.fixed:
+                continue
+            decision_variables.append(var)
+        totsu_logger.debug(f"Decision variables: {[var.name for var in decision_variables]}")
+        self.variables = decision_variables
         
         # Adjust the objective function for Phase I if there are artificial variables
         if self.artificial_vars:

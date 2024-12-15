@@ -19,10 +19,12 @@ class SuperSimplexSolver:
 
     def __init__(self, max_itr=100):
         self.max_itr = max_itr
+        self.model = None
         self._tableau = None
 
     def solve(self, model):
         totsu_logger.debug("Solving using Simplex method...")
+        self.model = model
 
         # Standardize the model
         try:
@@ -65,7 +67,7 @@ class SuperSimplexSolver:
                 raise UnboundedProblemError("Problem is unbounded after Phase II.")
 
         # Extract and store the solution
-        solution = self._tableau.extract_solution()
+        solution = self.extract_solution()
 
         return solution
     
@@ -110,3 +112,13 @@ class SuperSimplexSolver:
 
     def get_reduced_costs(self, y):
         return self._tableau.compute_reduced_costs(y)
+
+    def extract_solution(self):
+        # tableau solution does not contain fixed variables
+        tableau_solution =  self._tableau.extract_solution()
+        # add fixed variables
+        for var in self._tableau.original_variables:
+            if var.fixed:
+                tableau_solution[var.name] = var.value
+        totsu_logger.debug(f"Extracted solution: {tableau_solution}")
+        return tableau_solution
