@@ -104,6 +104,9 @@ class SuperSimplexSolver:
     def get_current_objective_value(self):
         return self._tableau.get_current_objective_value()
 
+    def get_objective_value(self):
+        return ModelProcessor.get_active_objective_value(self.model)
+
     def is_optimal(self):
         return self._tableau.is_optimal()
     

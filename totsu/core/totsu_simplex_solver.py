@@ -42,23 +42,14 @@ class TotsuSimplexSolver():
                 results.solver.status = SolverStatus.ok
                 results.solver.termination_condition = TerminationCondition.optimal
                 # Populate results
-                results.solver.objective = self.solver.get_current_objective_value()
+                results.solver.objective = self.solver.get_objective_value()
                 results.solver.variables = solution
                 # Store
-                self.store_solution_in_model(model, solution)
+                self.store_dual_and_rc_in_model(model, solution)
 
             return results
         
-        def store_solution_in_model(self, model, solution):
-            # Store variable values
-            for var_name, value in solution.items():
-                var = model.find_component(var_name)
-                if var is not None:
-                    var.set_value(value)
-                    totsu_logger.debug(f"{var_name} = {value}")
-                else:
-                    totsu_logger.debug(f"Variable {var_name} not found in model.")
-
+        def store_dual_and_rc_in_model(self, model, solution):
             # Calculate and store dual variables
             if hasattr(model, 'dual'):
                 y = self.solver.get_dual_variables()

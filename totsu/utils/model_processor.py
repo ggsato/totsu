@@ -38,6 +38,11 @@ class ModelProcessor:
         return objectives[0]
 
     @staticmethod
+    def get_active_objective_value(model: ConcreteModel) -> float:
+        """Return the value of the active objective function."""
+        return value(ModelProcessor.get_active_objective(model))
+
+    @staticmethod
     def get_bounds(var: Var) -> Tuple[Optional[float], Optional[float]]:
         """Get the lower and upper bounds of a variable."""
         return var.lb, var.ub
