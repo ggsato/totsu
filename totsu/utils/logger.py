@@ -2,7 +2,7 @@ import logging
 
 # Configure the logger
 logging.basicConfig(
-    level=logging.DEBUG,  # Set the logging level
+    level=logging.INFO,  # Set the logging level
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler()  # Logs to the console
