@@ -673,7 +673,10 @@ class SensitivityAnalyzer:
                 x_infeas = [pt[0] for pt in self.infeasible_points]
                 y_infeas = [pt[1] for pt in self.infeasible_points]
                 # Choose a baseline z to plot these points, e.g., min(Z) - 10
-                baseline_z = np.nanmin(Z) - 10 if np.nanmin(Z) != np.nan else 0
+                if np.all(np.isnan(Z)):
+                    baseline_z = 0
+                else:
+                    baseline_z = np.nanmin(Z) - 10
                 z_infeas = [baseline_z]*len(self.infeasible_points)
 
                 infeasible_trace = go.Scatter3d(
