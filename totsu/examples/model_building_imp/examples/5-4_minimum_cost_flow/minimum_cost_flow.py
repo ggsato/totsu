@@ -54,13 +54,11 @@ def create_model():
 
     return model
 
-if __name__ == "__main__":
+def main(use_glpk):
     import sys, traceback
     try:
-        print("solving the model")
-        use_glpk = False
+        print(f"solving the model - use_glpk = {use_glpk}")
         model = create_model()
-        model.pprint()
         if use_glpk:
             solver = SolverFactory("glpk")
         else:
@@ -76,9 +74,17 @@ if __name__ == "__main__":
                 if model.flow[i, j].value > 0:
                     print(f"Flow from {i} to {j}: {model.flow[i, j].value}")
         else:
-            print(f"objective value = {solver.get_current_objective_value()}")
-            for (m, n) in model.arcs:
-                print(f"flow[{m}][{n}] = {solution[f"flow[{m},{n}]"]:.2f}")
+            print(f"tableau objective value = {solver.get_current_objective_value()}")
+            print(f"final objective value = {solver.get_objective_value()}")
+            for var in solution:
+                print(f"{var}: {solution[var]}")
 
     except Exception as ex:
         traceback.print_exception(ex)
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Minimum Cost Flow")
+    parser.add_argument("--use_glpk", action='store_true', help="If set, use the glpk solver, SuperSimplexSolver otherwise.")
+    args = parser.parse_args()
+    main(args.use_glpk)

@@ -41,6 +41,12 @@ from totsu.core.super_simplex_solver import SuperSimplexSolver, InfeasibleProble
    - `test_cycling_prevention`: Ensures the solver handles potential cycling scenarios.
    - `test_convexity`: Tests that multiple feasible starting points lead to the same optimal solution.
    - `test_basic_non_basic_partition`: Verifies basic and non-basic variable partitioning.
+
+9. **Fixed Values Handling **:
+    - `test_single_fixed_variable`: Tests handling of fixed variables in the model.
+    - `test_minimum_flow_fixed_variable`: Tests a minimum flow problem with fixed variables.
+    - `test_infeasible_fixed_variable`: Tests a problem with fixed variables leading to infeasibility.
+    - `test_unbounded_fixed_variable`: Tests a problem with fixed variables leading to unboundedness.
 """
 
 # Fixture to initialize the Simplex solver
@@ -300,7 +306,66 @@ def free_variable_model():
     model.objective = Objective(expr=model.x, sense=minimize)
     return model
 
+@pytest.fixture
+def create_minimal_fixed_variable_model():
+    model = ConcreteModel()
+    # Define variables
+    model.flow_1 = Var(within=NonNegativeReals)
+    model.flow_2 = Var(within=NonNegativeReals, bounds=(2.0, 2.0))  # Fixed via bounds
+    # Define constraint
+    model.eq = Constraint(expr=model.flow_1 + model.flow_2 == 2)
+    # Define objective
+    model.objective = Objective(expr=model.flow_1, sense=minimize)
+    return model
 
+@pytest.fixture
+def create_minimum_flow_fixed_variable_model():
+    # Create a Pyomo model
+    model = ConcreteModel()
+    # Define data
+    min_nodes = [i for i in range(4)]
+    min_costs = {(0, 1): 1, (0, 2): 3, (1, 2): 1, (2,3): 1} # 0 -> 1 -> 2: 1 + 1 = 2, 0 -> 2: 3
+    min_availabilities = {0: 2}
+    min_requirements = {3: -2}
+    # Sets
+    model.nodes = Set(initialize=min_nodes)
+    model.arcs = Set(initialize=[(i, j) for (i, j), c in min_costs.items() if c is not None])
+    # Parameters
+    model.costs = Param(model.arcs, initialize={k: v for k, v in min_costs.items() if v is not None})
+    model.availabilities = Param(model.nodes, initialize=min_availabilities, default=0)
+    model.requirements = Param(model.nodes, initialize=min_requirements, default=0)
+    # Variables
+    model.flow = Var(model.arcs, within=NonNegativeReals)
+    # Constraints
+    def flow_balance_rule(model, node):
+        inflow = sum(model.flow[i, node] for i in model.nodes if (i, node) in model.arcs)
+        outflow = sum(model.flow[node, j] for j in model.nodes if (node, j) in model.arcs)
+        return inflow +  model.availabilities[node] ==  outflow + (-1 * model.requirements[node])
+    model.flow_balance = Constraint(model.nodes, rule=flow_balance_rule)
+    # Objective: Minimize the total cost
+    def objective_rule(model):
+        return summation(model.costs, model.flow)
+    model.objective = Objective(rule=objective_rule, sense=minimize)
+    return model
+
+@pytest.fixture
+def create_infeasible_fixed_variable_model():
+    model = ConcreteModel()
+    model.flow_1 = Var(within=NonNegativeReals)
+    model.flow_2 = Var(within=NonNegativeReals, bounds=(3.0, 3.0))  # Fixed via bounds
+    model.eq1 = Constraint(expr=model.flow_1 + model.flow_2 == 3.0)
+    model.eq2 = Constraint(expr=model.flow_1 - model.flow_2 == 0.0)
+    model.obj = Objective(expr=model.flow_1, sense=minimize)
+    return model
+
+@pytest.fixture
+def create_unbounded_fixed_variable_model():
+    model = ConcreteModel()
+    model.flow_1 = Var(within=NonNegativeReals)
+    model.flow_2 = Var(within=NonNegativeReals, bounds=(3.0, 3.0))  # Fixed via bounds
+    model.eq = Constraint(expr=model.flow_1 >= 0.0)
+    model.obj = Objective(expr=model.flow_1 + model.flow_2, sense=maximize)
+    return model
 
 # Test methods using the fixtures
 def test_feasibility(solver, basic_lp_model):
@@ -518,3 +583,32 @@ def test_free_variable(solver, free_variable_model):
     # Since we're minimizing x, and x can be negative, the solver should find the smallest x satisfying the constraint
     expected_x = 2  # Since 2 * x >= 4 => x >= 2
     assert x_val >= expected_x - 1e-6, f"Expected x >= {expected_x}, got {x_val}"
+
+def test_single_fixed_variable(solver, create_minimal_fixed_variable_model):
+    solution = solver.solve(create_minimal_fixed_variable_model)
+    assert solution['flow_1'] == 0.0
+    assert solution['flow_2'] == 2.0
+    assert solver.get_current_objective_value() == 0.0
+    assert solver.get_objective_value() == 0.0
+
+def test_minimum_flow_fixed_variable(solver, create_minimum_flow_fixed_variable_model):
+    solution = solver.solve(create_minimum_flow_fixed_variable_model)
+    assert solution[f"flow[0,1]"] == 2.0
+    assert solution[f"flow[0,2]"] == 0.0
+    assert solution[f"flow[1,2]"] == 2.0
+    assert solution[f"flow[2,3]"] == 2.0
+    # The tableau objective value does not take fixed variables into account
+    assert solver.get_current_objective_value() == 4.0
+    # This ensures not only the objective value is correct, 
+    # but also variables are correctly set to the optimal values in the model.
+    assert solver.get_objective_value() == 6.0
+
+def test_infeasible_fixed_variable(solver, create_infeasible_fixed_variable_model):
+    with pytest.raises(InfeasibleProblemError) as exc_info:
+        solution = solver.solve(create_infeasible_fixed_variable_model)
+    assert "infeasible" in str(exc_info.value).lower(), "Infeasibility not correctly detected."
+
+def test_unbounded_fixed_variable(solver, create_unbounded_fixed_variable_model):
+    with pytest.raises(UnboundedProblemError) as exc_info:
+        solution = solver.solve(create_unbounded_fixed_variable_model)
+    assert "unbounded" in str(exc_info.value).lower(), "Unboundedness not correctly detected."

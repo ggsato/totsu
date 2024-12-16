@@ -43,6 +43,10 @@ class Tableau:
         return self.standardizer.variables
 
     @property
+    def original_variables(self):
+        return self.standardizer.original_variables 
+
+    @property
     def variables(self):
         if self.updated_variables:
             return self.updated_variables
@@ -100,6 +104,7 @@ class Tableau:
     def construct_tableau(self):
         num_constraints = len(self.constraints)
         num_variables = len(self.variables)
+        totsu_logger.debug(f"constructing tableau with constraints = {[con.name for con in self.constraints]} and variables = {[var.name for var in self.variables]}")
 
         var_name_to_index = self.var_name_to_index()
 
@@ -326,14 +331,17 @@ class Tableau:
 
         return True
     
-    def check_constraints_satisfied(self):
+    def check_constraints_satisfied(self, phase=2):
         solution = self.extract_solution()  # Extract solution from the tableau
-        constraints = self.original_constraints       # Get original constraints
+        if phase == 1:
+            constraints = self.constraints       # Get standardized constraints
+        elif phase == 2:
+            constraints = self.original_constraints
 
         # Evaluate each constraint at the given solution
         for con in constraints:
             repn = generate_standard_repn(con.body)
-            lhs_value = sum(value(solution[var.name]) * coef for var, coef in zip(repn.linear_vars, repn.linear_coefs))
+            lhs_value = sum(value(solution[var.name]) * coef for var, coef in zip(repn.linear_vars, repn.linear_coefs)) + repn.constant
             rhs_value = value(con.upper) if con.upper is not None else value(con.lower)
             if con.equality:
                 satisfied = np.isclose(lhs_value, rhs_value)
@@ -343,7 +351,7 @@ class Tableau:
                 satisfied = lhs_value >= rhs_value
 
             if not satisfied:
-                totsu_logger.debug(f"Constraint [{con}] is not satisfied by the solution.")
+                totsu_logger.debug(f"Constraint [{con}: {repn}, {lhs_value} = {rhs_value}] is not satisfied by the solution.")
                 return False
 
         totsu_logger.debug("All constraints are satisfied.")
@@ -421,8 +429,6 @@ class Tableau:
 
     def extract_solution(self):
         solution = {}
-        num_constraints = len(self.constraints)
-        num_variables = len(self.variables)
         index_to_var_name = self.index_to_var_name()
         for i, basic_var_idx in enumerate(self.basis_vars):
             if basic_var_idx == ARTIFICIAL_MARKER:
@@ -438,6 +444,9 @@ class Tableau:
         # Filter out slack, surplus, and artificial variables if desired
         final_solution = {var_name: value for var_name, value in solution.items()
                         if not ('slack' in var_name or 'surplus' in var_name or 'artificial' in var_name)}
+
+        # Finally, let the standardizer post-process the solution
+        self.standardizer.post_process_solution(final_solution)
         return final_solution
 
     def take_snapshot(self, phase, pivot_col=None, pivot_row=None, entering_var_idx=None, leaving_var_idx=None):
