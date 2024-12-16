@@ -492,32 +492,80 @@ class Tableau:
     def compute_dual_variables(self):
         """
         Compute the dual variables y^T = c_B^T * B^{-1}
+        Handles cases where basis_vars contain ARTIFICIAL_MARKER (-1).
+        Returns a dual variables array aligned with all constraints, setting y_i=0
+        for constraints with ARTIFICIAL_MARKER.
         """
-        # Map variable indices to names
         index_to_var_name = self.index_to_var_name()
+        num_constraints = len(self.constraints)
         
-        # Extract c_B (coefficients of basic variables in the objective function)
+        # Initialize dual variables with zeros for all constraints
+        y = np.zeros(num_constraints)
+        
+        # Identify constraints with valid basis variables
+        valid_constraints = [i for i, idx in enumerate(self.basis_vars) if idx != ARTIFICIAL_MARKER]
+        
+        if not valid_constraints:
+            totsu_logger.debug("No valid basis variables found for dual variables computation.")
+            return y  # All y_i are zero
+        
+        # Extract c_B (coefficients of valid basic variables in the objective function)
         c_B = []
-        for idx in self.basis_vars:
+        for i in valid_constraints:
+            idx = self.basis_vars[i]
             var_name = index_to_var_name[idx]
             var = self.get_variable_by_name(var_name)
             coef = self.get_objective_coefficient(var)
             c_B.append(coef)
         c_B = np.array(c_B)
         
-        # Extract B from the tableau
-        B = self.get_basis_matrix()
+        # Extract A_S: columns of A for basis_vars in valid_constraints
+        A_S = []
+        for i in valid_constraints:
+            idx = self.basis_vars[i]
+            column = self.get_variable_column_in_constraints_by_index(idx)
+            A_S.append(column)
+        A_S = np.column_stack(A_S)  # Shape: (num_constraints, num_valid_basis_vars)
         
-        # Compute B^{-1}
-        B_inv = np.linalg.inv(B)
+        # Check if A_S is square
+        num_valid_basis_vars = len(valid_constraints)
+        if A_S.shape[1] != num_valid_basis_vars:
+            totsu_logger.error("Basis matrix A_S is not square. Cannot compute dual variables.")
+            raise ValueError("Basis matrix A_S must be square to compute dual variables.")
         
-        # Compute y^T
-        y = c_B @ B_inv
+        # Solve for y_S in the system A_S^T y_S = c_B
+        # This requires A_S^T to be invertible
+        try:
+            # Check if A_S is square
+            if A_S.shape[0] != A_S.shape[1]:
+                # Use least squares if A_S is not square
+                y_S, residuals, rank, s = np.linalg.lstsq(A_S.T, c_B, rcond=None)
+                totsu_logger.debug(f"Dual variables (least squares): {y_S}")
+            else:
+                # Direct inversion if A_S is square
+                B_inv = np.linalg.inv(A_S)
+                y_S = c_B @ B_inv
+                totsu_logger.debug(f"Dual variables (inverted basis matrix): {y_S}")
+        except np.linalg.LinAlgError as e:
+            totsu_logger.error(f"Cannot compute dual variables: {e}")
+            raise
+        
+        # Assign y_S to the corresponding positions in y
+        for i, constraint_idx in enumerate(valid_constraints):
+            y[constraint_idx] = y_S[i]
+            totsu_logger.debug(f"Dual variable y[{constraint_idx}] set to {y_S[i]}")
+        
+        # y remains 0 for constraints with ARTIFICIAL_MARKER
+        for i in range(num_constraints):
+            if i not in valid_constraints:
+                totsu_logger.debug(f"Dual variable y[{i}] remains 0 (ARTIFICIAL_MARKER).")
+        
         return y
-    
+
     def compute_reduced_costs(self, y):
         """
-        Compute reduced costs for non-basic variables
+        Compute reduced costs for all variables.
+        Handles cases where dual variables y_i are zero for constraints with ARTIFICIAL_MARKER.
         """
         index_to_var_name = self.index_to_var_name()
         reduced_costs = {}
@@ -526,26 +574,43 @@ class Tableau:
             var = self.get_variable_by_name(var_name)
             c_j = self.get_objective_coefficient(var)
             
-            # Extract A_j
+            # Extract A_j (column of variable in constraints)
             A_j = self.get_variable_column_in_constraints(var_name)
             
-            # Compute reduced cost
+            # Compute reduced cost: c_j - y^T A_j
             reduced_cost_j = c_j - y @ A_j
             reduced_costs[var_name] = reduced_cost_j
+            totsu_logger.debug(f"Reduced cost for {var_name}: {reduced_cost_j}")
+        
         # Reduced costs of basic variables are zero
         for idx in self.basis_vars:
+            if idx == ARTIFICIAL_MARKER:
+                continue  # Skip artificial variables
             var_name = index_to_var_name[idx]
-            reduced_costs[var_name] = 0
+            reduced_costs[var_name] = 0.0
+            totsu_logger.debug(f"Reduced cost for basic variable {var_name}: 0.0")
+        
         return reduced_costs
 
-    def get_basis_matrix(self):
+    def get_basis_matrix(self, valid_basis_indices=None):
         """
-        Extract the basis matrix B from the tableau
+        Extract the basis matrix B from the tableau.
+        If valid_basis_indices is provided, only those indices are considered.
         """
         num_constraints = len(self.constraints)
-        B = np.zeros((num_constraints, num_constraints))
-        for i, idx in enumerate(self.basis_vars):
-            B[:, i] = self.get_variable_column_in_constraints_by_index(idx)
+        if valid_basis_indices is None:
+            valid_basis_indices = self.basis_vars
+        
+        B = []
+        for i, idx in enumerate(valid_basis_indices):
+            if idx == ARTIFICIAL_MARKER:
+                continue  # Skip artificial variables
+            column = self.get_variable_column_in_constraints_by_index(idx)
+            B.append(column)
+        
+        if not B:
+            return np.array([])  # Return empty array if no valid basis variables
+        B = np.column_stack(B)
         return B
 
     def get_variable_column_in_constraints_by_index(self, var_idx):
