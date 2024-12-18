@@ -16,12 +16,13 @@ from pyomo.core import inequality
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State, ALL
+import dash_bootstrap_components as dbc
 import threading
 from ..utils.logger import totsu_logger
 from ..utils.model_processor import ModelProcessor
 
 class SensitivityAnalyzer:
-    def __init__(self, model, solver):
+    def __init__(self, model, solver, use_jupyter=False):
         self.solver = solver
         self.model = model.clone()
         self.significant_constraints = None
@@ -42,6 +43,7 @@ class SensitivityAnalyzer:
         self.infeasible_points = []
         self.unbounded_points = []
         self.baseline_shadow_prices = None
+        self.use_jupyter = use_jupyter
 
     def get_all_constraints(self, model):
         # Extract all constraint names from the model.
@@ -365,7 +367,7 @@ class SensitivityAnalyzer:
             totsu_logger.error("Please call solve_primal before calling show_analyzer")
             return
 
-        app = dash.Dash(__name__)
+        app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
         # Dropdown for constraint selection
         constraint_options = []
@@ -822,7 +824,10 @@ class SensitivityAnalyzer:
         def update_interval(computation_status):
             return not computation_status.get('running', False)
 
-        app.run_server(debug=True)
+        if self.use_jupyter:
+            app.run_server(mode='inline', debug=True)
+        else:
+            app.run_server(debug=True)
 
     def create_initial_figure(self):
         x_constr, y_constr = self.significant_constraints
