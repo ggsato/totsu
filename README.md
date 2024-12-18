@@ -39,13 +39,26 @@ Integrates solving linear programming problems with the Simplex method and visua
 # Installation
 
 ```
-totsu$ conda install -c conda-forge pyomo numpy pytest plotly dash dash-bootstrap-components
-totsu$ pytest
+conda install -c conda-forge pyomo numpy pytest plotly dash dash-bootstrap-components
+pytest
 ```
 
 # Quick Start
 
+Launching Tableau Visualizer.
 ```
-totsu$ python3 -m totsu.examples.model_building_imp.product_mix_tableau_visualization
-totsu$ python3 -m totsu.examples.model_building_imp.product_mix_visualization
+python3 -m totsu.examples.model_building_imp.product_mix_tableau_visualization
 ```
+
+Launching SensitivityAnalyzer.
+```
+python3 -m totsu.examples.model_building_imp.product_mix_visualization
+```
+
+## Jupyter Support
+
+If you need to run visualizers in a Jupyter Notebook shell, install `jupyterlab` additionally.
+```
+conda install jupyterlab
+```
+Then, open `demo.ipynb`.
