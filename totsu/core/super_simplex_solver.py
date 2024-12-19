@@ -118,6 +118,8 @@ class SuperSimplexSolver:
 
     def extract_solution(self):
         solution =  self._tableau.extract_solution()
+        # Finally, let the standardizer post-process the solution
+        self._tableau.standardizer.post_process_solution(solution)
         # Store the solution in the model
         ModelProcessor.set_variable_values(self.model, solution)
         return solution
