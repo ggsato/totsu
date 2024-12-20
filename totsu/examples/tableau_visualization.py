@@ -1,16 +1,12 @@
 from ..utils.model_builder import ModelBuilder
 from ..utils.tableau_visualizer import TableauVisualizer
-from ..core.super_simplex_solver import SuperSimplexSolver
 
 def main(model_name):
     # Create the primal model
     primal_model = ModelBuilder.build_model_by_name(model_name)
 
-    # Initialize the solver
-    solver = SuperSimplexSolver()
-
     # Visualize the solution
-    visualizer = TableauVisualizer(primal_model, solver)
+    visualizer = TableauVisualizer(primal_model)
     try:
         visualizer.solve_model()
         visualizer.show_tableau_visualization()
