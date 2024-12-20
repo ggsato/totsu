@@ -6,9 +6,10 @@ from plotly.subplots import make_subplots
 from pyomo.environ import SolverFactory
 from ..utils.logger import totsu_logger
 from ..core.tableau import ARTIFICIAL_MARKER
+from ..core.super_simplex_solver import SuperSimplexSolver
 
 class TableauVisualizer:
-    def __init__(self, model, solver, use_jupyter=False):
+    def __init__(self, model, use_jupyter=False):
         """
         Initializes the TableauVisualizer.
 
@@ -18,7 +19,7 @@ class TableauVisualizer:
         - mode (str): 'standalone' for standalone Dash app or 'jupyter' for Jupyter notebook.
         """
         self.model = model
-        self.solver = solver
+        self.solver = SuperSimplexSolver()
         self.history = []
         self.use_jupyter = use_jupyter
         self.app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
