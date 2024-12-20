@@ -127,11 +127,11 @@ class SensitivityAnalyzer:
             return None, {}
 
         # Get the objective value
-        objective_value = result.solver.objective
+        objective_value = ModelProcessor.get_active_objective_value(model)
 
         # Extract shadow prices (dual values)
         shadow_prices = {}
-        for c in model.component_objects(Constraint, active=True):
+        for c in ModelProcessor.get_constraints(model):
             for index in c:
                 constr = c[index]
                 dual_value = model.dual.get(constr, 0.0)
