@@ -36,7 +36,7 @@ def create_model():
     # Refining veg capacity
     model.refining_capacity_veg = Constraint(expr=
                                     model.x1 + model.x2 <= refining_max_capacity[oil_types[0]])
-    # Refining veg capacity
+    # Refining non veg capacity
     model.refining_capacity_nonveg = Constraint(expr=
                                     model.x3 + model.x4 + model.x5 <= refining_max_capacity[oil_types[1]])
     # Hardness

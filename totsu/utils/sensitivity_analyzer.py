@@ -271,6 +271,10 @@ class SensitivityAnalyzer:
             processed_points += 1
             self.computation_data["progress"] = processed_points / total_points * 100
 
+        is_nan = np.isnan(Z)
+        not_nan_counts = np.sum(~is_nan, axis=1)
+        totsu_logger.info(f"Computed {np.sum(not_nan_counts)} valid points out of {total_points}.")
+
         # Update computation_data with B and Z
         self.computation_data["B"] = B
         self.computation_data["Z"] = Z
@@ -545,6 +549,10 @@ class SensitivityAnalyzer:
                 Z = self.computation_data["Z"]
                 x_values = B[constr_indices[x_constr]]
                 y_values = B[constr_indices[y_constr]]
+                totsu_logger.debug(f"Plotting {len(x_values)} x {len(y_values)} grid points.")
+                totsu_logger.debug(f"Z stats: {np.nanmin(Z)}, {np.nanmax(Z)}, {np.isnan(Z).sum()}")
+                totsu_logger.debug(f"{x_values.shape}, {y_values.shape}, {Z.shape}")
+
 
                 # Clear existing data
                 fig.data = []
@@ -750,8 +758,9 @@ class SensitivityAnalyzer:
                         legend=dict(x=0.7, y=0.9),
                     )
                 else:
-                    totsu_logger.info(f"No ridge line to plot because {ridge_error}")
+                    totsu_logger.error(f"No ridge line to plot because {ridge_error}")
 
+                totsu_logger.debug(f"fig.data: {fig.data}")
                 return fig
             else:
                 raise dash.exceptions.PreventUpdate
