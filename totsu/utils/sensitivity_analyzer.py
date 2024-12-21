@@ -13,6 +13,7 @@ from pyomo.environ import (
 )
 from pyomo.opt import SolverStatus, TerminationCondition
 from pyomo.core import inequality
+from pyomo.core.base.constraint import ConstraintData, ConstraintList
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State, ALL
@@ -132,10 +133,21 @@ class SensitivityAnalyzer:
         # Extract shadow prices (dual values)
         shadow_prices = {}
         for c in ModelProcessor.get_constraints(model):
-            for index in c:
-                constr = c[index]
-                dual_value = model.dual.get(constr, 0.0)
-                shadow_prices[constr.name] = dual_value
+            if isinstance(c, Constraint):
+                # Iterate over indices of the Constraint object
+                for index in c:
+                    constr = c[index]
+                    dual_value = model.dual.get(constr, 0.0)
+                    shadow_prices[constr.name] = dual_value
+            elif isinstance(c, ConstraintList):
+                # Iterate over all constraints in the ConstraintList
+                for constr in c:
+                    dual_value = model.dual.get(constr, 0.0)
+                    shadow_prices[constr.name] = dual_value
+            elif isinstance(c, ConstraintData):
+                # Single constraint
+                dual_value = model.dual.get(c, 0.0)
+                shadow_prices[c.name] = dual_value
 
         # Store result in cache
         cache_key = tuple(sorted(rhs_adjustments.items()))
