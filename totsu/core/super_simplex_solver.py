@@ -19,10 +19,12 @@ class SuperSimplexSolver:
 
     def __init__(self, max_itr=100):
         self.max_itr = max_itr
+        self.model = None
         self._tableau = None
 
     def solve(self, model):
         totsu_logger.debug("Solving using Simplex method...")
+        self.model = model
 
         # Standardize the model
         try:
@@ -65,7 +67,7 @@ class SuperSimplexSolver:
                 raise UnboundedProblemError("Problem is unbounded after Phase II.")
 
         # Extract and store the solution
-        solution = self._tableau.extract_solution()
+        solution = self.extract_solution()
 
         return solution
     
@@ -102,6 +104,9 @@ class SuperSimplexSolver:
     def get_current_objective_value(self):
         return self._tableau.get_current_objective_value()
 
+    def get_objective_value(self):
+        return ModelProcessor.get_active_objective_value(self.model)
+
     def is_optimal(self):
         return self._tableau.is_optimal()
     
@@ -110,3 +115,11 @@ class SuperSimplexSolver:
 
     def get_reduced_costs(self, y):
         return self._tableau.compute_reduced_costs(y)
+
+    def extract_solution(self):
+        solution =  self._tableau.extract_solution()
+        # Finally, let the standardizer post-process the solution
+        self._tableau.standardizer.post_process_solution(solution)
+        # Store the solution in the model
+        ModelProcessor.set_variable_values(self.model, solution)
+        return solution

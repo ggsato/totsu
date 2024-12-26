@@ -13,18 +13,21 @@ from pyomo.environ import (
 )
 from pyomo.opt import SolverStatus, TerminationCondition
 from pyomo.core import inequality
+from pyomo.core.base.constraint import ConstraintData, ConstraintList
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State, ALL
+import dash_bootstrap_components as dbc
 import threading
 from ..utils.logger import totsu_logger
 from ..utils.model_processor import ModelProcessor
 
 class SensitivityAnalyzer:
-    def __init__(self, model, solver):
+    def __init__(self, model, solver, use_jupyter=False):
         self.solver = solver
         self.model = model.clone()
         self.significant_constraints = None
+        self.all_constraints = self.get_all_constraints(self.model)
         self.b_original = {}
         self.lp_solution_cache = {}
         self.computation_thread = None
@@ -40,6 +43,23 @@ class SensitivityAnalyzer:
         self.last_termination_info = None
         self.infeasible_points = []
         self.unbounded_points = []
+        self.baseline_shadow_prices = None
+        self.use_jupyter = use_jupyter
+
+    def get_all_constraints(self, model):
+        # Extract all constraint names from the model.
+        constraint_names = []
+        for c in ModelProcessor.get_constraints(model):
+            # Check if the constraint is indexed
+            if c.is_indexed():
+                # c has multiple indexed constraints
+                for index in c:
+                    constr = c[index]
+                    constraint_names.append(constr.name)
+            else:
+                # c is a single (scalar) constraint
+                constraint_names.append(c.name)
+        return constraint_names
 
     def solve_primal(self):
         # Solve the primal model
@@ -49,6 +69,7 @@ class SensitivityAnalyzer:
             if z_primal is None:
                 totsu_logger.info("Primal model is not optimal or not feasible.")
                 return False
+            self.baseline_shadow_prices = shadow_prices
         except Exception as e:
             totsu_logger.info("Exception occurred while solving the primal model:", e)
             return False
@@ -107,15 +128,26 @@ class SensitivityAnalyzer:
             return None, {}
 
         # Get the objective value
-        objective_value = result.solver.objective
+        objective_value = ModelProcessor.get_active_objective_value(model)
 
         # Extract shadow prices (dual values)
         shadow_prices = {}
-        for c in model.component_objects(Constraint, active=True):
-            for index in c:
-                constr = c[index]
-                dual_value = model.dual.get(constr, 0.0)
-                shadow_prices[constr.name] = dual_value
+        for c in ModelProcessor.get_constraints(model):
+            if isinstance(c, Constraint):
+                # Iterate over indices of the Constraint object
+                for index in c:
+                    constr = c[index]
+                    dual_value = model.dual.get(constr, 0.0)
+                    shadow_prices[constr.name] = dual_value
+            elif isinstance(c, ConstraintList):
+                # Iterate over all constraints in the ConstraintList
+                for constr in c:
+                    dual_value = model.dual.get(constr, 0.0)
+                    shadow_prices[constr.name] = dual_value
+            elif isinstance(c, ConstraintData):
+                # Single constraint
+                dual_value = model.dual.get(c, 0.0)
+                shadow_prices[c.name] = dual_value
 
         # Store result in cache
         cache_key = tuple(sorted(rhs_adjustments.items()))
@@ -251,6 +283,10 @@ class SensitivityAnalyzer:
             processed_points += 1
             self.computation_data["progress"] = processed_points / total_points * 100
 
+        is_nan = np.isnan(Z)
+        not_nan_counts = np.sum(~is_nan, axis=1)
+        totsu_logger.info(f"Computed {np.sum(not_nan_counts)} valid points out of {total_points}.")
+
         # Update computation_data with B and Z
         self.computation_data["B"] = B
         self.computation_data["Z"] = Z
@@ -343,7 +379,28 @@ class SensitivityAnalyzer:
         return x_values, y_values, z_values, None
 
     def show_analyzer(self):
-        app = dash.Dash(__name__)
+        if not self.b_original:
+            totsu_logger.error("Please call solve_primal before calling show_analyzer")
+            return
+
+        app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+        # Dropdown for constraint selection
+        constraint_options = []
+        for cname in self.all_constraints:
+            dual_val = self.baseline_shadow_prices.get(cname, 0.0)  # If no dual val, default to 0.0
+            constraint_options.append({
+                'label': f"{cname} ({dual_val:.4f})",
+                'value': cname
+            })
+        constraint_dropdown = dcc.Dropdown(
+            id='constraint-dropdown',
+            options=constraint_options,
+            multi=True,
+            placeholder="Select two constraints",
+            value=self.significant_constraints,
+            style={'width': '70%', 'display': 'inline-block', 'vertical-align': 'middle'}  # Wider and inline
+        )
 
         # Build constraint sliders
         constraint_sliders = []
@@ -364,24 +421,99 @@ class SensitivityAnalyzer:
         # Create initial figure
         initial_fig = self.create_initial_figure()
 
-        app.layout = html.Div(
-            [
-                html.H1("LP Sensitivity Analysis Visualization"),
-                html.Div(constraint_sliders, style={'width': '80%', 'margin': 'auto'}),
-                html.Button("Start Exploration", id="start-button", n_clicks=0),
-                html.Button("Stop Exploration", id="stop-button", n_clicks=0),
-                dcc.Graph(id="lp-graph", figure=initial_fig),
-                dcc.Interval(id="interval-component", interval=1000, n_intervals=0, disabled=True),
-                html.Div(id="progress-output"),
-                dcc.Store(id='computation-status', data={'running': False}),
-            ]
+        app.layout = html.Div([
+            html.H1("LP Sensitivity Analysis Visualization"),
+            html.Div([
+                html.Label("Select Two Constraints for Visualization:", style={'display': 'inline-block', 'margin-right': '10px'}),
+                constraint_dropdown,
+                html.Button("Apply Constraints", id="apply-constraints-button", n_clicks=0, style={'margin-bottom': '10px'}),
+            ], style={'margin-bottom': '20px', 'whiteSpace': 'nowrap'}),
+
+            html.Div(id='status-message', style={'margin': 'auto', 'vertical-align': 'middle', 'margin-bottom': '20px'}),
+            
+            html.Div(id='slider-container', style={'width': '80%', 'margin': 'auto', 'margin-bottom': '20px'}),
+
+            html.Button("Start Exploration", id="start-button", n_clicks=0),
+            html.Button("Stop Exploration", id="stop-button", n_clicks=0),
+            dcc.Graph(id="lp-graph", figure=initial_fig),
+            dcc.Interval(id="interval-component", interval=1000, n_intervals=0, disabled=True),
+            
+            dcc.Store(id='computation-status', data={'running': False}),
+            dcc.Store(id='selected-constraints', data=self.significant_constraints),
+            dcc.Store(id='constraint-message', data=''),  # store for constraint application messages
+            dcc.Store(id='computation-message', data='')   # store for computation progress messages
+        ])
+
+        # Callback to update significant constraints based on user selection
+        @app.callback(
+            [Output('selected-constraints', 'data'),
+            Output('slider-container', 'children'),
+            Output('constraint-message', 'data')],
+            [Input('apply-constraints-button', 'n_clicks'),
+            Input('constraint-dropdown', 'value')],
+            [State('selected-constraints', 'data')]
         )
+        def update_selected_constraints(n_clicks, selected_constraints_from_dropdown, current_selected_constraints):
+            ctx = dash.callback_context
+            if not ctx.triggered:
+                # On initial load (no user interaction yet)
+                default_msg = f"Using default constraints: {current_selected_constraints[0]} and {current_selected_constraints[1]}"
+                return current_selected_constraints, generate_sliders(current_selected_constraints), default_msg
+            else:
+                button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+                if button_id == 'apply-constraints-button':
+                    if selected_constraints_from_dropdown is None or len(selected_constraints_from_dropdown) != 2:
+                        return dash.no_update, dash.no_update, "Please select exactly two constraints."
+                    # Constraints applied by user
+                    return (
+                        selected_constraints_from_dropdown,
+                        generate_sliders(selected_constraints_from_dropdown),
+                        f"Constraints '{selected_constraints_from_dropdown[0]}' and '{selected_constraints_from_dropdown[1]}' applied successfully!"
+                    )
+                elif button_id == 'constraint-dropdown':
+                    # If user just changes dropdown without pressing apply, do not update the message
+                    raise dash.exceptions.PreventUpdate
+
+        def generate_sliders(constraints):
+            slider_elements = []
+            for constr_name in constraints:
+                slider_id = {'type': 'range-slider', 'index': constr_name}
+                slider_elements.append(html.Label(f"{constr_name} Change (%)"))
+                slider_elements.append(
+                    dcc.RangeSlider(
+                        id=slider_id,
+                        min=-50,
+                        max=50,
+                        step=1,
+                        value=[-20, 20],
+                        marks={i: f'{i}%' for i in range(-50, 51, 10)},
+                    )
+                )
+            return slider_elements
 
         @app.callback(
-            Output("progress-output", "children"),
-            [Input("interval-component", "n_intervals")],
+            Output('constraint-dropdown', 'value'),
+            [Input('constraint-dropdown', 'value')]
         )
-        def update_progress(n):
+        def limit_constraint_selection(selected_constraints):
+            # If no selection or it's None, do nothing
+            if selected_constraints is None:
+                raise PreventUpdate
+
+            # If more than two constraints have been selected,
+            # truncate the list to the first two chosen
+            if len(selected_constraints) > 2:
+                return selected_constraints[:2]
+
+            return selected_constraints
+
+        @app.callback(
+            Output("computation-message", "data"),
+            [Input("interval-component", "n_intervals")],
+            [State("computation-status", "data")]
+        )
+        def update_progress(n, computation_status):
             if self.computation_thread is not None and self.computation_thread.is_alive():
                 progress = self.computation_data.get("progress", 0)
                 return f"Computation in progress: {progress:.1f}% completed."
@@ -389,6 +521,26 @@ class SensitivityAnalyzer:
                 return "Computation completed."
             else:
                 return ""
+
+        @app.callback(
+            Output('status-message', 'children'),
+            [Input('constraint-message', 'data'),
+            Input('computation-message', 'data')]
+        )
+        def show_last_updated_message(constraint_msg, computation_msg):
+            ctx = dash.callback_context
+            if not ctx.triggered:
+                return ""  # No messages yet
+
+            # Identify which input triggered the callback
+            triggered_input = ctx.triggered[0]['prop_id'].split('.')[0]
+
+            if triggered_input == 'constraint-message':
+                return constraint_msg  # Show only constraint message
+            elif triggered_input == 'computation-message':
+                return computation_msg  # Show only computation message
+
+            return ""  # Default fallback if none match
 
         @app.callback(
             Output("lp-graph", "figure"),
@@ -409,6 +561,10 @@ class SensitivityAnalyzer:
                 Z = self.computation_data["Z"]
                 x_values = B[constr_indices[x_constr]]
                 y_values = B[constr_indices[y_constr]]
+                totsu_logger.debug(f"Plotting {len(x_values)} x {len(y_values)} grid points.")
+                totsu_logger.debug(f"Z stats: {np.nanmin(Z)}, {np.nanmax(Z)}, {np.isnan(Z).sum()}")
+                totsu_logger.debug(f"{x_values.shape}, {y_values.shape}, {Z.shape}")
+
 
                 # Clear existing data
                 fig.data = []
@@ -539,7 +695,10 @@ class SensitivityAnalyzer:
                 x_infeas = [pt[0] for pt in self.infeasible_points]
                 y_infeas = [pt[1] for pt in self.infeasible_points]
                 # Choose a baseline z to plot these points, e.g., min(Z) - 10
-                baseline_z = np.nanmin(Z) - 10 if np.nanmin(Z) != np.nan else 0
+                if np.all(np.isnan(Z)):
+                    baseline_z = 0
+                else:
+                    baseline_z = np.nanmin(Z) - 10
                 z_infeas = [baseline_z]*len(self.infeasible_points)
 
                 infeasible_trace = go.Scatter3d(
@@ -611,8 +770,9 @@ class SensitivityAnalyzer:
                         legend=dict(x=0.7, y=0.9),
                     )
                 else:
-                    totsu_logger.info(f"No ridge line to plot because {ridge_error}")
+                    totsu_logger.error(f"No ridge line to plot because {ridge_error}")
 
+                totsu_logger.debug(f"fig.data: {fig.data}")
                 return fig
             else:
                 raise dash.exceptions.PreventUpdate
@@ -623,9 +783,10 @@ class SensitivityAnalyzer:
              Input("stop-button", "n_clicks"),
              Input("interval-component", "n_intervals")],
             [State({'type': 'range-slider', 'index': ALL}, 'value'),
-             State('computation-status', 'data')]
+             State('computation-status', 'data'),
+             State('selected-constraints', 'data')]
         )
-        def control_computation(start_clicks, stop_clicks, n_intervals, slider_values, computation_status):
+        def control_computation(start_clicks, stop_clicks, n_intervals, slider_values, computation_status, selected_constraints):
             ctx = dash.callback_context
 
             if not ctx.triggered:
@@ -634,6 +795,24 @@ class SensitivityAnalyzer:
                 button_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
             if button_id == "start-button":
+                # If user-selected constraints are available, use them
+                if selected_constraints and len(selected_constraints) == 2:
+                    self.significant_constraints = selected_constraints
+                else:
+                    # If none selected, fallback to previous logic (already chosen constraints)
+                    pass
+
+                # Now that self.significant_constraints is set, re-generate self.b_original if needed
+                self.b_original = {}
+                for constr_name in self.significant_constraints:
+                    constraint = self.get_constraint_by_name(self.model, constr_name)
+                    if constraint.has_ub():
+                        self.b_original[constr_name] = constraint.upper()
+                    elif constraint.has_lb():
+                        self.b_original[constr_name] = constraint.lower()
+                    else:
+                        self.b_original[constr_name] = value(constraint.body)
+
                 if self.computation_thread is None or not self.computation_thread.is_alive():
                     self.stop_computation = False
                     self.computation_data["B"] = None
@@ -666,7 +845,10 @@ class SensitivityAnalyzer:
         def update_interval(computation_status):
             return not computation_status.get('running', False)
 
-        app.run_server(debug=True)
+        if self.use_jupyter:
+            app.run_server(mode='inline', debug=True)
+        else:
+            app.run_server(debug=True)
 
     def create_initial_figure(self):
         x_constr, y_constr = self.significant_constraints

@@ -5,27 +5,52 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from pyomo.environ import SolverFactory
 from ..utils.logger import totsu_logger
+from ..core.tableau import ARTIFICIAL_MARKER
+from ..core.super_simplex_solver import SuperSimplexSolver
 
 class TableauVisualizer:
-    def __init__(self, model, solver):
+    def __init__(self, model, use_jupyter=False):
+        """
+        Initializes the TableauVisualizer.
+
+        Parameters:
+        - model: The optimization model to solve.
+        - solver: The solver to use for solving the model.
+        - mode (str): 'standalone' for standalone Dash app or 'jupyter' for Jupyter notebook.
+        """
         self.model = model
-        self.solver = solver
+        self.solver = SuperSimplexSolver()
         self.history = []
+        self.use_jupyter = use_jupyter
         self.app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
     def solve_model(self):
         """Solves the model and stores tableau history for visualization."""
         try:
             solution = self.solver.solve(self.model)
-            self.history = self.solver.get_history()
-            self.setup_dash_layout()
+            totsu_logger.info("Model solved successfully.")
         except Exception as e:
             totsu_logger.error(f"Error solving model: {e}")
-            raise  # Re-raise the exception after logging
+        finally:
+            self.history = self.solver.get_history()
+            self.setup_dash_layout()
 
-    def show_tableau_visualization(self):
-        """Launches the Dash app for tableau visualization."""
-        self.app.run_server(debug=True)
+    def show_tableau_visualization(self, **kwargs):
+        """
+        Launches the Dash app for tableau visualization.
+
+        Additional keyword arguments can be passed to run_server, such as:
+        - mode: 'inline' for JupyterDash
+        - debug: Boolean indicating whether to run in debug mode
+        """
+        if not self.history:
+            totsu_logger.warning("No history to display. Please solve the model first.")
+            return
+
+        if self.use_jupyter:
+            self.app.run_server(mode='inline', debug=True, **kwargs)
+        else:
+            self.app.run_server(debug=True, **kwargs)
 
     def setup_dash_layout(self):
         """Configures the Dash app layout and callbacks."""
@@ -42,9 +67,9 @@ class TableauVisualizer:
                 dbc.Col([
                     html.Label("Select Iteration:", className="font-weight-bold"),
                     dbc.InputGroup([
-                        dbc.Button("Previous", id="prev-button", n_clicks=0),
-                        dbc.Button("Next", id="next-button", n_clicks=0),
-                    ], size="sm", className="mb-2"),
+                        dbc.Button("Previous", id="prev-button", n_clicks=0, size="sm"),
+                        dbc.Button("Next", id="next-button", n_clicks=0, size="sm"),
+                    ], className="mb-2"),
                     dcc.Slider(
                         id="iteration-slider",
                         min=0,
@@ -128,9 +153,9 @@ class TableauVisualizer:
             ],
             [Input("iteration-slider", "value")]
         )
-        def update_visualizations(selected_iteration):
+        def update_visualizations_callback(selected_iteration):
             return self.update_visualizations(selected_iteration)
-        
+
         @self.app.callback(
             Output("explanation-collapse", "is_open"),
             [Input("explanation-toggle", "n_clicks")],
@@ -145,14 +170,14 @@ class TableauVisualizer:
         """Callback to update all visualizations based on selected iteration."""
         if not self.history:
             return {}, {}, {}
-        
+
         snapshot = self.history[selected_iteration]
-        
-        totsu_logger.info(f"snapshot at iteration {selected_iteration}\n{snapshot}")
-        
+
+        totsu_logger.info(f"Snapshot at iteration {selected_iteration}\n{snapshot}")
+
         # Update the combined figure with all components
         combined_fig = self.create_combined_figure(snapshot)
-        
+
         return (
             self.create_objective_progress_chart(selected_iteration),
             combined_fig,
@@ -233,7 +258,7 @@ class TableauVisualizer:
         phase = snapshot["phase"]
 
         # -- Basic Variable Names --
-        basic_var_names = [variables[idx] for idx in basic_var_indices]
+        basic_var_names = ["REMOVED" if idx == ARTIFICIAL_MARKER else variables[idx] for idx in basic_var_indices]
 
         # -- Entering Variable Bar Chart Data --
         colors_entering = ['green' if coef >= 0 else 'red' for coef in objective_row]
@@ -245,13 +270,14 @@ class TableauVisualizer:
 
         # -- RHS column --
         # Separate RHS
-        rhs_values = tableau[:-1, -1] # exclude objective value
+        rhs_values = tableau[:-1, -1]  # exclude objective value
 
         # Reverse data to match display order if necessary
         basic_var_names_reversed = basic_var_names[::-1]
         aligned_ratios_reversed = aligned_ratios[::-1]
         colors_leaving = ['#1f77b4' if i == pivot_row else '#cccccc' for i in range(len(basic_var_names))]
         colors_leaving_reversed = colors_leaving[::-1]
+        tableau_reversed = (tableau[:-1])[::-1]
 
         # Create a subplot figure with 3 columns and 2 rows
         fig = make_subplots(
@@ -325,11 +351,11 @@ class TableauVisualizer:
         # -- Tableau Heatmap --
         fig.add_trace(
             go.Heatmap(
-                z=tableau,
+                z=tableau_reversed,
                 x=variables,
                 y=basic_var_names_reversed,
                 colorscale="Viridis",
-                text=tableau.round(2),
+                text=tableau_reversed.round(2),
                 hoverinfo="text",
                 colorbar=dict(title="Values"),
                 showscale=True
@@ -395,7 +421,7 @@ class TableauVisualizer:
 
         # Clearly distinguish RHS
         fig.update_xaxes(title_text="RHS", row=2, col=3)
-        fig.update_yaxes(showticklabels=False, row=2, col=3)  # If you want to hide repetitive labels
+        fig.update_yaxes(showticklabels=False, row=2, col=3)  # Hide repetitive labels if desired
 
         return fig
 
@@ -412,7 +438,7 @@ class TableauVisualizer:
         if selected_iteration > 0 and pivot_row is not None:
             prev_snapshot = self.history[selected_iteration - 1]
             prev_basic_var_indices = prev_snapshot['basis_vars']
-            prev_basic_var_names = [variables[idx] for idx in prev_basic_var_indices]
+            prev_basic_var_names = ["REMOVED" if idx == ARTIFICIAL_MARKER else variables[idx] for idx in prev_basic_var_indices]
             leaving_var = prev_basic_var_names[pivot_row]
         else:
             leaving_var = "None"
@@ -433,7 +459,7 @@ class TableauVisualizer:
             html.P(self.get_phase_explanation(phase))
         ]
         return explanation
-    
+
     def get_phase_explanation(self, phase):
         if phase == 1:
             return ("Phase 1 focuses on finding an initial basic feasible solution. "
