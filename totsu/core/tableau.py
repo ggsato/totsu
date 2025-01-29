@@ -121,6 +121,9 @@ class Tableau:
             # Map variable names to coefficients
             coef_map = {var.name: coef for var, coef in zip(repn.linear_vars, repn.linear_coefs)}
             for var_name, coef in coef_map.items():
+                if var_name not in var_name_to_index:
+                    totsu_logger.warning(f"Skipping fixed variable '{var_name}' in constraint '{con.name}'")
+                    continue  # Skip fixed variables
                 var_idx = var_name_to_index[var_name]
                 self.tableau[i, var_idx] = coef
             # Set the RHS value
