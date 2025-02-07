@@ -1,5 +1,5 @@
 from pyomo.environ import (
-    value, Var, Constraint, NonNegativeReals, Objective, minimize
+    value, Var, Constraint, NonNegativeReals, Integers, Objective, minimize
 )
 from pyomo.repn import generate_standard_repn
 
@@ -17,6 +17,8 @@ class ModelStandardizer:
         self.original_objective = None
         self.original_constraints = None
         self.artificial_vars = []
+        self.integer_variables = []  # Store integer variables before standardization
+        self.fixed_variables = []
 
     def standardize_model(self):
         # Clone the original model to avoid modifying it
@@ -38,6 +40,9 @@ class ModelStandardizer:
 
         for var in self.variables:
             totsu_logger.debug(f"Variable '{var.name}' bounds: [{var.lb}, {var.ub}]")
+            if var.domain is Integers:
+                self.integer_variables.append(var)
+        totsu_logger.debug(f"Identified integer variables: {[var.name for var in self.integer_variables]}")
 
         # Tighten variable bounds based on constraints
         if not self.tighten_variable_bounds():
@@ -180,10 +185,17 @@ class ModelStandardizer:
         decision_variables = []
         for var in list(ModelProcessor.get_variables(self.standard_model)):
             if var.fixed:
-                continue
-            decision_variables.append(var)
+                self.fixed_variables.append(var)
+            else:
+                decision_variables.append(var)
         totsu_logger.debug(f"Decision variables: {[var.name for var in decision_variables]}")
         self.variables = decision_variables
+
+        # Restore integer domains
+        for var in self.integer_variables:
+            if var.name in [v.name for v in self.variables]:
+                var.domain = Integers
+                totsu_logger.debug(f"Restored integer domain for variable '{var.name}'")
         
         # Adjust the objective function for Phase I if there are artificial variables
         if self.artificial_vars:

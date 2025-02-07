@@ -1,0 +1,21 @@
+# Table of contents for Totsu JupyterBook
+format: jb-book
+root: introduction
+
+parts:
+  - caption: Tutorials
+    chapters:
+      - file: tutorials/tutorial1_simplex_solver
+        title: Tutorial 1) Introduction to the Simplex Solver
+      - file: tutorials/tutorial2_sensitivity_analysis
+        title: Tutorial 2) Sensitivity Analysis with SensitivityAnalyzer
+      - file: tutorials/tutorial3_advanced_use_cases
+        title: Tutorial 3) Advanced Use Cases
+
+  - caption: Appendices
+    chapters:
+      - file: appendices/installation_guide
+        title: Installation Guide
+      - file: appendices/resources
+        title: Additional Resources
+
