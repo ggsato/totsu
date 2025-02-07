@@ -1,7 +1,7 @@
 # test_model_standardizer.py
 
 import pytest
-from pyomo.environ import ConcreteModel, Var, Constraint, Objective, NonNegativeReals, Reals, minimize, maximize, value
+from pyomo.environ import ConcreteModel, Var, Constraint, Objective, NonNegativeReals, Reals, Integers, minimize, maximize, value
 from pyomo.repn import generate_standard_repn
 
 from totsu.core.modelstandardizer import ModelStandardizer
@@ -227,3 +227,19 @@ def test_infeasibility_during_standardization():
     
     # Verify that the correct exception is raised
     assert "infeasible" in str(exc_info.value).lower(), "Infeasibility not detected during standardization."
+
+def test_integer_variable_preservation():
+    # Create a model with integer variables
+    model = ConcreteModel()
+    model.x = Var(domain=Integers)
+    model.y = Var(domain=NonNegativeReals)
+    model.con1 = Constraint(expr=2 * model.x + model.y <= 10)
+    model.obj = Objective(expr=model.x + model.y, sense=minimize)
+
+    # Standardize the model
+    standardizer = ModelStandardizer(model)
+    standard_model = standardizer.standardize_model()
+
+    # Ensure integer variables are still integer
+    for var in standardizer.integer_variables:
+        assert var.domain is Integers, f"Variable {var.name} should remain integer, but it is {var.domain}"
