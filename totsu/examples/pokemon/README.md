@@ -21,7 +21,7 @@ This project provides a **Mathematical Optimization Model** using **Integer Line
 │── 📝 README.md            # Project documentation (this file)
 │── 🏗️ pokemon_team_selection.py  # Main Pyomo optimization model
 │── 🔬 test_pokemon_team_selection.py  # Test cases for validation
-│── 📊 data/                 # Type effectiveness matrix and other input data (if needed)
+│── 📊 data/                 # Type effectiveness matrix and other input data (TODO)
 ```
 
 ---
@@ -79,37 +79,37 @@ python pokemon_team_selection.py balanced Psychic Fairy --team_size 4
 The model **optimizes the team selection** using a **binary variable** approach:
 
 ### **Decision Variables**
-Each Pokémon type \( i \) is either **selected (1)** or **not selected (0)**:
-\[
+Each Pokémon type $i$ is either **selected (1)** or **not selected (0)**:
+$$
 x_i \in \{0,1\}, \quad \forall i \in T
-\]
-where \( T \) is the set of all Pokémon types.
+$$
+where $T$ is the set of all Pokémon types.
 
 ### **Objective Functions**
 #### **Attack Maximization**
-\[
+$$
 \max \sum_{i \in T} x_i \sum_{j \in S} A_{ij}
-\]
-where \( A_{ij} \) is the **effectiveness** of type \( i \) against opponent type \( j \).
+$$
+where $A_{ij}$ is the **effectiveness** of type $i$ against opponent type $j$.
 
 #### **Defense Maximization**
-\[
+$$
 \min \sum_{j \in S} \sum_{i \in T} A_{ij} \cdot x_i
-\]
+$$
 This minimizes the sum of opponent attacks against the chosen Pokémon.
 
 #### **Balanced Strategy**
-\[
+$$
 \max \lambda \sum_{i \in T} x_i \sum_{j \in S} A_{ij} - (1-\lambda) \sum_{j \in S} \sum_{i \in T} A_{ij} \cdot x_i
-\]
-where \( \lambda \) is a **user-defined balance factor** (default: 0.5).
+$$
+where $\lambda$ is a **user-defined balance factor** (default: 0.5).
 
 ### **Constraints**
 #### **Team Size Constraint**
-Ensures exactly \( N \) Pokémon types are selected:
-\[
+Ensures exactly $N$ Pokémon types are selected:
+$$
 \sum_{i \in T} x_i = N
-\]
+$$
 
 ---
 
