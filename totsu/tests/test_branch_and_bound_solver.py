@@ -1,5 +1,5 @@
 import pytest
-from pyomo.environ import ConcreteModel, Var, Constraint, Objective, Integers, minimize, value
+from pyomo.environ import ConcreteModel, Var, Constraint, Objective, Integers, minimize, maximize, value
 from totsu.core.branch_and_bound_solver import BranchAndBoundSolver
 from totsu.core.super_simplex_solver import InfeasibleProblemError, UnboundedProblemError
 
@@ -19,6 +19,17 @@ def integer_programming_model():
     return model
 
 @pytest.fixture
+def integer_programming_max_model():
+    """Creates an integer programming maximization model for testing."""
+    model = ConcreteModel()
+    model.x = Var(domain=Integers, bounds=(0, 10))
+    model.y = Var(domain=Integers, bounds=(0, 10))
+    model.con1 = Constraint(expr=2 * model.x + 3 * model.y <= 12)
+    model.con2 = Constraint(expr=model.x + model.y <= 6)
+    model.obj = Objective(expr=5 * model.x + 4 * model.y, sense=maximize)
+    return model
+
+@pytest.fixture
 def branch_and_bound_solver():
     """Returns an instance of BranchAndBoundSolver."""
     return BranchAndBoundSolver()
@@ -26,7 +37,16 @@ def branch_and_bound_solver():
 
 def test_branch_and_bound_feasibility(branch_and_bound_solver, integer_programming_model):
     """Tests that BranchAndBoundSolver finds a feasible integer solution."""
-    solution = branch_and_bound_solver.solve(integer_programming_model)
+    solution, _ = branch_and_bound_solver.solve(integer_programming_model)
+    assert solution is not None, "Expected a feasible solution, but got None."
+    
+    # Ensure the solution satisfies integer constraints
+    for var_name, value in solution.items():
+        assert float(value).is_integer(), f"Variable {var_name} should be integer, but got {value}"
+
+def test_branch_and_bound_max_feasibility(branch_and_bound_solver, integer_programming_max_model):
+    """Tests that BranchAndBoundSolver finds a feasible integer solution for maximization."""
+    solution, _ = branch_and_bound_solver.solve(integer_programming_max_model)
     assert solution is not None, "Expected a feasible solution, but got None."
     
     # Ensure the solution satisfies integer constraints
@@ -35,11 +55,21 @@ def test_branch_and_bound_feasibility(branch_and_bound_solver, integer_programmi
 
 def test_branch_and_bound_optimality(branch_and_bound_solver, integer_programming_model):
     """Tests that BranchAndBoundSolver finds the optimal integer solution."""
-    solution = branch_and_bound_solver.solve(integer_programming_model)
+    solution, objective = branch_and_bound_solver.solve(integer_programming_model)
     expected_objective = branch_and_bound_solver.best_objective
     computed_objective = sum(value * coefficient for var, value in solution.items() for coefficient in [5 if 'x' in var else 4])
     
     assert abs(expected_objective - computed_objective) < 1e-6, "Branch and Bound did not find the correct optimal solution."
+    assert abs(expected_objective - objective) < 1e-6, "Branch and Bound did not return the correct optimal solution."
+
+def test_branch_and_bound_max_optimality(branch_and_bound_solver, integer_programming_max_model):
+    """Tests that BranchAndBoundSolver finds the optimal integer solution for maximization."""
+    solution, objective = branch_and_bound_solver.solve(integer_programming_max_model)
+    expected_objective = branch_and_bound_solver.best_objective
+    computed_objective = sum(value * coefficient for var, value in solution.items() for coefficient in [5 if 'x' in var else 4])
+    
+    assert abs(expected_objective - computed_objective) < 1e-6, "Branch and Bound did not find the correct optimal solution."
+    assert abs(expected_objective - objective) < 1e-6, "Branch and Bound did not return the correct optimal solution."
 
 def test_branch_and_bound_infeasible_case(branch_and_bound_solver):
     """Tests that BranchAndBoundSolver correctly identifies an infeasible model."""
@@ -48,7 +78,7 @@ def test_branch_and_bound_infeasible_case(branch_and_bound_solver):
     model.con1 = Constraint(expr=model.x >= 10)  # Impossible constraint
     model.obj = Objective(expr=model.x, sense=minimize)
     
-    solution = branch_and_bound_solver.solve(model)
+    solution, _ = branch_and_bound_solver.solve(model)
     assert solution is None, "Solver should return None for infeasible models."
 
 def test_branch_and_bound_solver_unbounded(branch_and_bound_solver):
