@@ -78,8 +78,8 @@ def test_branch_and_bound_infeasible_case(branch_and_bound_solver):
     model.con1 = Constraint(expr=model.x >= 10)  # Impossible constraint
     model.obj = Objective(expr=model.x, sense=minimize)
     
-    solution, _ = branch_and_bound_solver.solve(model)
-    assert solution is None, "Solver should return None for infeasible models."
+    with pytest.raises(InfeasibleProblemError):
+        branch_and_bound_solver.solve(model)
 
 def test_branch_and_bound_solver_unbounded(branch_and_bound_solver):
     """Tests that BranchAndBoundSolver correctly detects unbounded problems."""
