@@ -27,19 +27,19 @@ def solver():
 
 def test_valid_single_opponent(model_attack, solver):
     input_data = create_input_data(parse_opponent_types(SINGLE_OPPONENT), TEAM_SIZE)
-    selected_team, result = model_attack.solve(input_data, solver_name="glpk")
+    selected_team, result, _ = model_attack.solve(input_data, solver_name="totsubb")
     assert isinstance(selected_team, list)
     assert len(selected_team) == TEAM_SIZE
 
 def test_valid_dual_opponent(model_defense, solver):
     input_data = create_input_data(parse_opponent_types(DUAL_OPPONENT), TEAM_SIZE)
-    selected_team, result = model_defense.solve(input_data, solver_name="glpk")
+    selected_team, result, _ = model_defense.solve(input_data, solver_name="totsubb")
     assert isinstance(selected_team, list)
     assert len(selected_team) == TEAM_SIZE
 
 def test_valid_multi_opponent(model_balanced, solver):
     input_data = create_input_data(parse_opponent_types(MULTI_OPPONENT), TEAM_SIZE)
-    selected_team, result = model_balanced.solve(input_data, solver_name="glpk")
+    selected_team, result, _ = model_balanced.solve(input_data, solver_name="totsubb")
     assert isinstance(selected_team, list)
     assert len(selected_team) == TEAM_SIZE
 
@@ -54,9 +54,9 @@ def test_invalid_team_size(model_attack):
 def test_solution_consistency(model_attack, model_defense, model_balanced, solver):
     input_data = create_input_data(parse_opponent_types(SINGLE_OPPONENT), TEAM_SIZE)
     
-    attack_team, _ = model_attack.solve(input_data, solver_name="glpk")
-    defense_team, _ = model_defense.solve(input_data, solver_name="glpk")
-    balanced_team, _ = model_balanced.solve(input_data, solver_name="glpk")
+    attack_team, _, _ = model_attack.solve(input_data, solver_name="totsubb")
+    defense_team, _, _ = model_defense.solve(input_data, solver_name="totsubb")
+    balanced_team, _, _ = model_balanced.solve(input_data, solver_name="totsubb")
 
     assert attack_team != defense_team  # Attack and Defense should differ
     assert attack_team != balanced_team or defense_team != balanced_team  # Balanced should be distinct
