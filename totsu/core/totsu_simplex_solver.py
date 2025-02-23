@@ -37,7 +37,7 @@ class TotsuSimplexSolver():
                 results.solver.termination_condition = TerminationCondition.unbounded
             except OptimizationError as oe:
                 results.solver.status = SolverStatus.aborted
-                results.solver.termination_condition = TerminationCondition.userLimit
+                results.solver.termination_condition = TerminationCondition.maxIterations
             else:
                 results.solver.status = SolverStatus.ok
                 results.solver.termination_condition = TerminationCondition.optimal
