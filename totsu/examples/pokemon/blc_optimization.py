@@ -382,8 +382,9 @@ class BLCTeamSelection:
 
         return model
 
-    def solve(self, solver_name):
+    def solve(self, solver_name, B=None, L=None, C=None):
         solver = SolverFactory(solver_name)
+        self.fix_BLC(B, L, C)
         results = solver.solve(self.model, tee=True)
 
         print("Status:", results.solver.status)
@@ -405,6 +406,32 @@ class BLCTeamSelection:
 
         explain_choice(chosen_bait, chosen_leader, chosen_cover, self.OP, self.DV, self.OI, self.DR)
 
+    def fix_BLC(self, B, L, C):
+        if B is not None:
+            if not self.support_dual_types:
+                print(f"fixing xB as {B}")
+                self.model.xB[p].fix(1)
+            else:
+                B_dual = self.parse_pokemon_types([B])[0]
+                print(f"fixing xB as {B_dual}")
+                self.model.xB[B_dual[0], B_dual[1]].fix(1)
+        if L is not None:
+            if not self.support_dual_types:
+                print(f"fixing xL as {L}")
+                self.model.xL[p].fix(1)
+            else:
+                L_dual = self.parse_pokemon_types([L])[0]
+                print(f"fixing xL as {L_dual}")
+                self.model.xL[L_dual[0], L_dual[1]].fix(1)
+        if C is not None:
+            if not self.support_dual_types:
+                print(f"fixing xC as {C}")
+                self.model.xC[p].fix(1)
+            else:
+                C_dual = self.parse_pokemon_types([C])[0]
+                print(f"fixing xC as {C_dual}")
+                self.model.xC[C_dual[0], C_dual[1]].fix(1)
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="A program to show the BLC team selection for pokemon battle league")
@@ -412,6 +439,9 @@ if __name__ == "__main__":
     parser.add_argument("--strategy", type=str, default="both", help="The BLC strategy. counter, resistance, or both")
     parser.add_argument("--solver", type=str, default="cbc", help="The solver name")
     parser.add_argument("--use_dual", action='store_true', help="If set, both of single and dual types are considered")
+    parser.add_argument("--B", type=str, help="(Optional) If specified a particular pokemon type as B, B is fixed")
+    parser.add_argument("--L", type=str, help="(Optional) If specified a particular pokemon type as L, L is fixed")
+    parser.add_argument("--C", type=str, help="(Optional) If specified a particular pokemon type as C, C is fixed")
     args = parser.parse_args()
 
     print(f"chosen pokemon types: {args.pokemon_types}")
@@ -434,4 +464,4 @@ if __name__ == "__main__":
 
     blc.build(args.pokemon_types)
 
-    blc.solve(args.solver)
+    blc.solve(args.solver, args.B, args.L, args.C)
