@@ -432,6 +432,66 @@ class BLCTeamSelection:
                 print(f"fixing xC as {C_dual}")
                 self.model.xC[C_dual[0], C_dual[1]].fix(1)
 
+    def solve_by_loops(self, B=None, L=None, C=None):
+        from heapq import heappush, heappop
+        class BattleTeam:
+            def __init__(self, B, L, C, obj):
+                self.B = B
+                self.L = L
+                self.C = C
+                self.obj = obj
+            def __lt__(self, other):
+                return -self.obj < -other.obj
+
+        # Define w1, w2 and w3, w4
+        w1 = 0
+        w2 = 0
+        w3 = 0
+        w4 = 0
+        if self.strategy == "counter":
+            w1 = 1.0
+            w3 = 1.0
+        elif self.strategy == "resistance":
+            w2 = 1.0
+            w4 = 1.0
+        else:
+            w1 = 1.0
+            w2 = 1.0
+            w3 = 1.0
+            w4 = 1.0
+
+        b_list = [self.parse_pokemon_types([B])[0]] if B is not None else self.model.P
+        l_list = [self.parse_pokemon_types([L])[0]] if L is not None else self.model.P
+        c_list = [self.parse_pokemon_types([C])[0]] if C is not None else self.model.P
+        heap = []
+        for b in b_list:
+            for l in l_list:
+                if l == b:
+                    continue
+                for c in self.model.P:
+                    if c == b or c == l:
+                        continue
+                    # calculate alpha, beta, gamma
+                    alpha = self.synergy_alpha(b, l, w1, w2)
+                    beta = self.synergy_beta(l, c, w3, w4)
+                    gamma = self.synergy_gamma(b, l, c)
+                    # objective value
+                    obj = (alpha + beta) - gamma
+                    heappush(heap, BattleTeam(b, l, c, obj))
+        # finally, retrieve the 1st item
+        best_obj = 0
+        best_teams = []
+        team = heappop(heap)
+        while best_obj <= team.obj:
+            best_obj = team.obj
+            best_teams.append(team)
+            team = heappop(heap)
+        for team in best_teams:
+            print("============")
+            print(f"BEST TEAM[obj={team.obj}]: Bait={team.B}, Leader={team.L}, Cover={team.C}")
+            print("============")
+            explain_choice(team.B, team.L, team.C, self.OP, self.DV, self.OI, self.DR)
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="A program to show the BLC team selection for pokemon battle league")
@@ -464,4 +524,11 @@ if __name__ == "__main__":
 
     blc.build(args.pokemon_types)
 
-    blc.solve(args.solver, args.B, args.L, args.C)
+    if args.solver == "loops":
+
+        # solve by loops
+        blc.solve_by_loops(args.B, args.L, args.C)
+
+    else:
+
+        blc.solve(args.solver, args.B, args.L, args.C)
