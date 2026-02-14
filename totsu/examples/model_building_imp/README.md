@@ -9,29 +9,44 @@ https://www.wiley.com/go/model_building_mathematical_programming
 
 ### 1.1 Product Mix
 
+Solve
+```
+python3 -m totsu.examples.model_building_imp.examples.chp1_1_product_mix.product_mix
+```
+
 Tableau Visualization
 ```
-python3 -m totsu.examples.model_building_imp.examples.1-1_product_mix.product_mix_tableau_visualization
+python3 -m totsu.examples.model_building_imp.examples.chp1_1_product_mix.product_mix_tableau_visualization
 ```
 
 Sensitivity Analysis
 ```
-python3 -m totsu.examples.model_building_imp.examples.1-1_product_mix.product_mix_visualization
+python3 -m totsu.examples.model_building_imp.examples.chp1_1_product_mix.product_mix_visualization
 ```
 
 ### 1.2 Blending
 
+Solve
+```
+python3 -m totsu.examples.model_building_imp.examples.chp1_2_blending.blending
+```
+
 Tableau Visualization
 ```
-python3 -m totsu.examples.model_building_imp.examples.1-2_blending.blending_tablean_visualization
+python3 -m totsu.examples.model_building_imp.examples.chp1_2_blending.blending_tablean_visualization
 ```
 
 Sensitivity Analysis
 ```
-python3 -m totsu.examples.model_building_imp.examples.1-2_blending.blending_visualization
+python3 -m totsu.examples.model_building_imp.examples.chp1_2_blending.blending_visualization
 ```
 
 ### 4.1 Multiplant
+
+Solve
+```
+python3 -m totsu.examples.model_building_imp.examples.chp4_1_multiplant.multiplant
+```
 
 Tableau Visualization
 ```
@@ -45,14 +60,70 @@ python3 -m totsu.examples.model_building_imp.examples.4-1_multiplant.multiplant_
 
 ### 5.1 Three-industry economy
 
+Solve
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_1_three_industry_economy.three_industry_economy
+```
+
 Tableau Visualization
 ```
-python3 -m totsu.examples.model_building_imp.examples.5-1_three_industry_economy.three_industry_economy_tableau_visualization
+python3 -m totsu.examples.model_building_imp.examples.chp5_1_three_industry_economy.three_industry_economy_tableau_visualization
 ```
 
 Sensitivity Analysis
 ```
-python3 -m totsu.examples.model_building_imp.examples.5-1_three_industry_economy.three_industry_economy_visualization
+python3 -m totsu.examples.model_building_imp.examples.chp5_1_three_industry_economy.three_industry_economy_visualization
+```
+
+### 5.2 Transportation
+
+Solve
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_2_transportation.transportation
+```
+
+Tableau Visualization
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_2_transportation.transportation_tableau_visualization
+```
+
+Sensitivity Analysis
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_2_transportation.transportation_visualization
+```
+
+### 5.4 Minimum Cost Flow
+
+Solve
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_4_minimum_cost_flow.minimum_cost_flow
+```
+
+Tableau Visualization
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_4_minimum_cost_flow.minimum_cost_flow_tableau_visualization
+```
+
+Sensitivity Analysis
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_4_minimum_cost_flow.minimum_cost_flow_visualization
+```
+
+### 5.7 Critical Path
+
+Solve
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_7_critical_path.critical_path
+```
+
+Tableau Visualization
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_7_critical_path.critical_path_tableau_visualization
+```
+
+Sensitivity Analysis
+```
+python3 -m totsu.examples.model_building_imp.examples.chp5_7_critical_path.critical_path_visualization
 ```
 
 ## Problems
