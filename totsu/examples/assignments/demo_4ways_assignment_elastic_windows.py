@@ -47,6 +47,12 @@ def build_model(with_windows: bool = False) -> ConcreteModel:
                 m.forbidden_constraint.add(m.x[w,c,d,s] == 0)
 
     if with_windows:
+        # Explicitly require c2 to be served on day 1.
+        # This is intentionally in conflict with c2's early-window restriction.
+        m.c2_day1_required = Constraint(
+            expr=sum(m.x[w, "c2", 1, s] for w in m.W for s in m.S) == 1
+        )
+
         def window_early_rule(m, c, d):
             # If day d is before the customer's window, forbid service.
             if d < m.start[c]:
@@ -273,10 +279,13 @@ if __name__ == "__main__":
 
     penalties = {
         "shortfall": 1000,
-        "overtime": 100,
+        "overtime": 2000,
         "forbidden": 5000,
-        "early": 800,
-        "late": 800,
+        "window_early": 100,
+        "window_late": 100,
+        # Keep aliases for the first manual elasticity section above.
+        "early": 100,
+        "late": 100,
     }
 
     m = build_model()
@@ -322,8 +331,8 @@ if __name__ == "__main__":
     penalty_map = {
         "client_demand": penalties["shortfall"],
         "worker_daily":  penalties["overtime"],     # or "worker_total_days"
-        "window_early":  penalties["early"],
-        "window_late":   penalties["late"],
+        "window_early":  penalties["window_early"],
+        "window_late":   penalties["window_late"],
     }
 
     # 3. Apply generic elastic feasibility tool
