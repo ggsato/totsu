@@ -1,52 +1,146 @@
-# **Totsu (凸): A Visual Approach to Linear Programming**
+# Totsu
 
-**Totsu** (凸), meaning "convex" in Japanese, is an open-source project designed to revolutionize how the Simplex method is understood, taught, and applied. It combines the power of efficient linear programming with **interactive visualizations** that demystify the optimization process for students, educators, and practitioners.
+**Totsu** is a structural modeling and diagnostic toolkit for mathematical optimization.
 
-With **Totsu**, users can:
-- Solve linear programming problems with a modular and extensible Simplex solver.
-- Explore optimization concepts interactively through visualization tools like the **TableauVisualizer** and **SensitivityAnalyzer**.
-- Gain deep insights into feasible regions, duality, and sensitivity analysis without needing to be an LP expert.
+Most optimization libraries focus on computing optimal solutions.
+Totsu focuses on understanding *why* models behave the way they do.
 
-Totsu transforms optimization into an engaging, visual experience, making it ideal for both educational and practical applications.
+It provides tools to measure structural tension, visualize combinatorial behavior, and explore negotiable trade-offs inside mathematical models.
 
 ---
 
-## **Key Features**
+## What Totsu Is
 
-### **1. Intuitive Tableau Visualization**
-- Step-by-step visualization of the Simplex method, highlighting:
-  - **Entering variables** to improve the objective.
-  - **Leaving variables** to maintain feasibility.
-  - The entire tableau evolution across iterations.
-- Perfect for **teaching and learning** the mechanics of the Simplex algorithm interactively.
+Totsu is not just a solver wrapper.
 
-![Tableau Visualization](resources/tableau_vis.gif)
+It is a toolkit for:
 
----
+* Measuring infeasibility
+* Diagnosing structural bottlenecks
+* Visualizing MILP behavior
+* Exploring trade-offs beyond a single optimal solution
 
-### **2. Interactive Sensitivity Analysis**
-- Explore how changes in constraint values impact the objective function with:
-  - **3D Objective Value Surface**: Valid ranges for significant dual variables visualized interactively.
-  - **Ridge Analysis**: Trace optimal paths dynamically with gradient-guided animations.
-
-![Sensitivity Analysis](resources/sensitivity_analysis.gif)
----
-
-### **3. Seamless Integration with Pyomo**
-- Designed to work alongside **Pyomo**, a popular open-source optimization modeling library.
-- Easily integrates into workflows involving dynamic constraints or Branch and Bound for integer programming.
+Optimization is not only about deciding.
+It is also about measuring.
 
 ---
 
-## **Why Totsu?**
+# Core Capabilities
 
-- **For Educators**: Bring optimization to life with interactive tools that simplify teaching the Simplex algorithm and LP concepts.
-- **For Students**: Master linear programming by visualizing each step, from tableau updates to sensitivity analysis.
-- **For Practitioners**: Gain actionable insights into real-world decision-making problems, such as supply chain optimization or resource allocation.
+## 1. Elastic Tool — Structural Diagnosis
+
+The Elastic Tool transforms infeasible or tightly constrained models into measurable systems.
+
+Instead of failing with `infeasible`, it answers:
+
+* Which constraints absorb the stress?
+* How much relaxation is required?
+* What is the structural cost of feasibility?
+
+### Example
+
+```
+=== Structural Diagnosis Summary ===
+
+Total violation cost: 100
+
+Top structural tensions:
+  - window_early[c2, day 1]: deviation=1.0, penalty=100, cost=100
+
+Interpretation:
+The model absorbs infeasibility primarily through delivery windows.
+Are delivery windows constraints negotiable?
+```
+
+Elastic analysis makes constraint trade-offs visible.
 
 ---
 
-## **Installation**
+## 2. MILP Structural Visualization
+
+MILP models often suffer from combinatorial explosion.
+
+Totsu provides tools to:
+
+* Inspect branch-and-bound dynamics
+* Understand degeneracy and pivot behavior
+* Visualize constraint tightness
+* Debug large-scale combinatorial structures
+
+The goal is not only to solve MILPs faster —
+but to understand why a formulation behaves the way it does.
+
+---
+
+## 3. Dual Stacking (Experimental)
+
+Many real-world systems contain both stable structure and legitimate exceptions.
+
+Dual Stacking explores a two-layer structural approach:
+
+- A **stable layer** captures dominant, persistent structure.
+- A **negotiable layer** captures conditional, context-dependent behavior.
+
+The purpose is not to improve predictive accuracy.
+
+The purpose is to separate:
+- what is structurally fixed
+- from what is structurally flexible
+
+Rather than collapsing everything into a single model,
+Dual Stacking preserves meaningful variation.
+
+It aims to distinguish:
+- core structure
+- from structured exceptions
+- without treating rare but valid cases as mere noise.
+
+This direction builds on Elastic diagnosis and structural analysis,
+and remains under experimental development.
+
+---
+
+## Architecture Overview
+
+```mermaid
+flowchart TD
+
+    A[Users / Examples] --> B[Elastic Tool]
+    A --> C[MILP Visualization]
+    A --> D[Dual Stacking (Experimental)]
+
+    B --> E[Core Utilities]
+    C --> E
+    D --> E
+
+    E --> F[SimplexSolver]
+    E --> G[Tableau]
+    E --> H[Sensitivity & Structural Analysis]
+
+    F --> I[Solver Layer]
+    G --> I
+```
+---
+
+# Project Evolution
+
+Totsu evolves in stages:
+
+### Phase 1 — Elastic Diagnosis
+
+Measure structural tensions by allowing controlled relaxations.
+
+### Phase 2 — MILP Structural Visualization
+
+Understand combinatorial explosion and model design quality.
+
+### Phase 3 — Dual Stacking
+
+Move from single optimal solutions toward structured trade-off landscapes.
+
+---
+
+# Installation
 
 Totsu can be installed via Conda for robust dependency management.
 
@@ -62,43 +156,62 @@ conda install jupyterlab
 
 ---
 
-## **Quick Start**
+## When to Use Totsu
 
-### **1. TableauVisualizer**
-Launch the TableauVisualizer to explore the Simplex method step by step:
-```bash
-python3 -m totsu.examples.model_building_imp.examples.chp1_1_product_mix.product_mix_tableau_visualization
+Use Totsu when you want to **understand model structure**, not only compute a solution.
+
+### Good fit
+- Your model becomes **infeasible**, and you want to know *which constraints are causing it* (Elastic Tool)
+- A MILP “works” but is **slow / unstable / hard to explain**, and you want to see *why* (MILP Visualization)
+- You need **interpretable trade-offs** and “negotiable constraints” rather than a single answer (Dual Stacking: experimental)
+
+### Not a good fit
+- You only need a fast optimal solution and already trust your formulation (use standard solvers directly)
+- You don’t need diagnostics, explanation, or alternative trade-offs
+
+---
+
+# Examples
+
+See:
+
+```
+totsu/examples/
 ```
 
-### **2. SensitivityAnalyzer**
-Dive into sensitivity analysis and visualize objective value surfaces:
-```bash
-python3 -m totsu.examples.model_building_imp.examples.chp1_1_product_mix.product_mix_visualization
-```
+For example:
 
-### **3. Jupyter Support**
-Open `demo.ipynb` in **JupyterLab** to run visualizers interactively:
-```bash
-jupyter lab
+```
+python -m totsu.examples.assignments.demo_4ways_assignment_elastic_windows
 ```
 
 ---
 
-## **Roadmap and Vision**
+# Philosophy
 
-Totsu aims to make **linear programming** accessible and practical for everyone:
-- **Education**: Empower universities and online learning platforms with an interactive tool for teaching LP.
-- **Small Businesses**: Simplify decision-making by visualizing sensitivity to constraints.
-- **Open Source**: Build a vibrant community around LP visualization and optimization.
+Optimization is not only about computing answers.
+It is about making structure visible.
 
----
-
-## **Contributing**
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get involved.
+Totsu provides tools for structural measurement.
 
 ---
 
-## **License**
+# Legacy / Advanced Modules
+
+Detailed solver internals such as:
+
+* SimplexSolver
+* TableauVisualizer
+* SensitivityAnalysis
+
+are documented under:
+
+```
+totsu/utils/README.md
+```
+
+---
+
+# License
+
 Totsu is licensed under the [MIT License](LICENSE), ensuring it remains accessible and open for all.
-
----
