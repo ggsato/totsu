@@ -104,21 +104,21 @@ and remains under experimental development.
 
 ```mermaid
 flowchart TD
+    A["Users / Examples"] --> B["Elastic Tool"]
+    A --> C["MILP Visualization"]
+    A --> D["Dual Stacking (Experimental)"]
 
-    A[Users / Examples] --> B[Elastic Tool]
-    A --> C[MILP Visualization]
-    A --> D[Dual Stacking (Experimental)]
-
-    B --> E[Core Utilities]
+    B --> E["Core Utilities"]
     C --> E
     D --> E
 
-    E --> F[SimplexSolver]
-    E --> G[Tableau]
-    E --> H[Sensitivity & Structural Analysis]
+    E --> F["SimplexSolver"]
+    E --> G["Tableau"]
+    E --> H["Sensitivity & Structural Analysis"]
 
-    F --> I[Solver Layer]
+    F --> I["Solver Layer"]
     G --> I
+
 ```
 ---
 
