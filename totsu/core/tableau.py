@@ -7,8 +7,10 @@ from ..utils.logger import totsu_logger
 
 ARTIFICIAL_MARKER = -1
 
+# --- in tableau.py ---
+
 class Tableau:
-    def __init__(self, standardizer):
+    def __init__(self, standardizer, use_history=False):
         self.standardizer = standardizer # Be careful in phase 2 because it is not synchronized
         self.updated_objective = None
         self._tableau = None  # The simplex tableau
@@ -16,7 +18,21 @@ class Tableau:
         self.updated_variables = None
         self.basis_vars = []
         self.non_basis_vars = []
-        self.history = []  # To store tableau history for visualization
+        self.history = [] if use_history else None  # To store tableau history for visualization
+
+        self._pricing = "bland"
+        self._lex_ratio = False
+        self._phase1_cost_eps = 0.0
+        self._phase1_rhs_eps  = 0.0
+
+        # Devex bookkeeping
+        self._devex_weights = None   # np.ndarray of shape (num_cols,), set later
+        self._devex_basis   = None   # set of basic column indices (for refresh)
+        # Degeneration tracking and prevention
+        self._tabu_leave_col = None
+        self._tabu_ttl = 0
+        self._last_deg = False
+        self._last_delta_obj = None
 
     @property
     def standard_model(self):
@@ -85,12 +101,48 @@ class Tableau:
     def objective(self, new_objective):
         self.updated_objective = new_objective
 
+    def enable_strict_bland(self, flag: bool):
+        self.strict_bland = bool(flag)
+
+    def set_pivot_options(self, pricing: str = "bland", lex_ratio: bool = False):
+        self._pricing = pricing
+        self._lex_ratio = lex_ratio
+
+    def set_phase1_perturbations(self, cost_eps: float = 0.0, rhs_eps: float = 0.0):
+        self._phase1_cost_eps = float(cost_eps or 0.0)
+        self._phase1_rhs_eps  = float(rhs_eps or 0.0)
+
     def initialize_tableau(self):
         # Initialize basis and non-basis variables
         self.identify_basis_variables()
 
         # Construct the initial tableau matrix
         self.construct_tableau()
+
+        # Initialize Devex weights when we know number of columns (exclude RHS)
+        num_cols = self.tableau.shape[1] - 1
+        if self._devex_weights is None or len(self._devex_weights) != num_cols:
+            # Start with all ones (standard Devex)
+            import numpy as np
+            self._devex_weights = np.ones(num_cols, dtype=float)
+
+        # If Phase I is active (has artificial vars), apply tiny perturbations to help tie-break degeneracy
+        if self._phase1_cost_eps > 0.0:
+            # Add distinct epsilons to objective row for artificial columns only
+            # heuristic: scan var names and nudge their objective coefficients
+            var_idx_map = self.var_name_to_index()
+            k = 1
+            for name, j in var_idx_map.items():
+                if name.startswith("artificial_"):
+                    self.tableau[-1, j] += self._phase1_cost_eps * k
+                    k += 1
+
+        if self._phase1_rhs_eps > 0.0:
+            # Nudge RHS of rows whose basic variable is artificial (to break ties in feasibility)
+            for i, var_j in enumerate(self.basis_vars):
+                var_name = self.index_to_var_name()[var_j]
+                if isinstance(var_name, str) and var_name.startswith("artificial_"):
+                    self.tableau[i, -1] += self._phase1_rhs_eps
 
     def identify_basis_variables(self):
         # Basis variables are initially the slack and artificial variables
@@ -122,7 +174,7 @@ class Tableau:
             coef_map = {var.name: coef for var, coef in zip(repn.linear_vars, repn.linear_coefs)}
             for var_name, coef in coef_map.items():
                 if var_name not in var_name_to_index:
-                    totsu_logger.warning(f"Skipping fixed variable '{var_name}' in constraint '{con.name}'")
+                    totsu_logger.debug(f"Skipping fixed variable '{var_name}' in constraint '{con.name}'")
                     continue  # Skip fixed variables
                 var_idx = var_name_to_index[var_name]
                 self.tableau[i, var_idx] = coef
@@ -147,31 +199,242 @@ class Tableau:
         self.print_tableau("constructed")
 
         # Record the initial tableau in history
-        self.history.append(self.take_snapshot(1))
+        if self.history is not None:
+            self.history.append(self.take_snapshot(1))
 
     def print_tableau(self, message):
         totsu_logger.debug(f"tableau[{message}]:")
         totsu_logger.debug(f"{self.tableau}")
 
-    def select_pivot_column(self, phase):
+    def phase1_cleanup_artificials(self, tol=1e-12):
+        """
+        For each row whose basic var is 'artificial_*' and RHS ~ 0,
+        pivot it out by bringing in the smallest-index non-artificial column
+        with a nonzero coefficient in that row.
+        """
+        idx2name = self.index_to_var_name()
+        m, n = self.tableau.shape
+        last_col = n - 1
+
+        changed = False
+        for i, b_idx in enumerate(self.basis_vars):
+            if "artificial" not in idx2name[b_idx]:
+                continue
+            rhs = float(self.tableau[i, last_col])
+            if abs(rhs) > tol:
+                continue  # positive artificial must be handled by normal Phase I
+
+            # Find a structural/slack column to enter (avoid artificials)
+            row = self.tableau[i, :last_col]
+            candidates = [j for j, aij in enumerate(row)
+                        if abs(aij) > tol and "artificial" not in idx2name[j]]
+            if not candidates:
+                continue  # nothing to pivot with; leave for normal iterations
+
+            enter = min(candidates)  # Bland style
+            self.pivot_operation(i, enter, phase=1)
+            changed = True
+        return changed
+
+    def _phase1_choose_artificial_row(self) -> int | None:
+        tol = getattr(self, "tol", 1e-9)
+        best_i = None
+        best_rhs = 0.0
+        var_names = self.index_to_var_name()  # listlike: col_idx -> name
+        for i, col_idx in enumerate(self.basis_vars):
+            name = var_names[col_idx]
+            rhs = float(self.tableau[i, -1])
+            if rhs > tol and name.startswith("artificial_"):
+                if rhs > best_rhs:
+                    best_rhs = rhs
+                    best_i = i
+        return best_i
+
+    def select_pivot_column_phase1_feasibility_directed(self, strict: bool = False):
+        # 1) Pick an artificial basic row that still has positive RHS
+        i_art = self._phase1_choose_artificial_row()
+        if i_art is None:
+            totsu_logger.warning("Phase-I feasibility-directed: no artificial row with positive RHS found")
+            return None
+
+        tol = getattr(self, "tol", 1e-9)
+        row = self.tableau[i_art, :-1]
+        rhs = self.tableau[:-1, -1]
+
+        # 2) Candidate columns must (a) reduce that artificial row (a_ij>0 on i_art),
+        #    (b) be nonbasic, and (c) NOT be any artificial variable.
+        names = self.index_to_var_name()
+        cand = [
+            j for j, aij in enumerate(row)
+            if aij > tol
+            and j not in self.basis_vars
+            and not names[j].startswith("artificial_")
+        ]
+        if not cand:
+            totsu_logger.warning("Phase-I feasibility-directed: no candidate columns found to reduce artificial row")
+            return None
+
+        # ---- B) Strict zero-RHS blocker filtering ----
+        # Disallow entering columns that have a positive coefficient on ANY zero-RHS row.
+        tol_zero = 1e-12
+        zero_rows = [i for i, b in enumerate(rhs) if abs(b) <= tol_zero]
+
+        def is_safe_column(j: int) -> bool:
+            col = self.tableau[:-1, j]
+            # safe if no zero-RHS row has a positive coefficient in this column
+            return all(col[i] <= tol for i in zero_rows)
+
+        safe = [j for j in cand if is_safe_column(j)]
+        if safe:
+            cand = safe
+        # else: keep original 'cand' (we will do a safe degenerate fallback below)
+
+        # 3) Viability check with degeneracy guard:
+        #    (a) column must have at least one positive entry somewhere, AND
+        #    (b) avoid columns that have any positive entry in a row with RHS ~= 0
+        #        (those create rmin=0 blockers and force degenerate pivots).
+        def classify_column(j: int):
+            col = self.tableau[:-1, j]
+            totsu_logger.debug(
+                f"Phase-I feasibility-directed: checking viability of col {j}, entries = {col}"
+            )
+            any_pos = (col > tol).any()
+            tol_zero = 1e-12
+            has_zero_blocker = any((col[i] > tol) and (abs(rhs[i]) <= tol_zero) for i in range(len(rhs)))
+            return any_pos, has_zero_blocker
+
+        good, risky = [], []
+        for j in cand:
+            any_pos, has_zero_blocker = classify_column(j)
+            if not any_pos:
+                continue
+            (risky if has_zero_blocker else good).append(j)
+
+        # Prefer columns without zero-RHS blockers; fall back to risky ones only if nothing good exists.
+        cand = good if good else risky
+        if not cand:
+            totsu_logger.warning("Phase-I feasibility-directed: no viable candidate columns found")
+            return None  # all blocked → let caller handle as blocked/unbounded
+
+        # 4) Prefer columns where the *artificial row* wins the min-ratio test (so it leaves).
+        def best_leaving_row(j: int):
+            col = self.tableau[:-1, j]
+            pos = [(i, rhs[i] / col[i]) for i in range(len(rhs)) if col[i] > tol]
+            # lex: tie-break by row index for stability
+            totsu_logger.debug(f"Phase-I feasibility-directed: ratios for col {j} are {pos}")
+            return min(pos, key=lambda t: (t[1], t[0]))  # (i*, theta*)
+
+        # First pass: pick a candidate where i_art is the leaving row
+        for j in sorted(cand):
+            i_star, _theta = best_leaving_row(j)
+            if i_star == i_art:
+                totsu_logger.debug(f"Phase-I feasibility-directed: picked col {j} where artificial row {i_art} leaves")
+                # hint to solver: remember this forced pivot
+                setattr(self, "_phase1_forced_pivot", (int(i_art), int(j)))
+                return int(j)
+
+        # 5) Fallback: still progress the targeted artificial row.
+        # ---- Degenerate-safe fallback (do NOT force; allow θ=0 pivot) ----
+        totsu_logger.debug(
+            f"Phase-I feasibility-directed: no candidate lets artificial row {i_art} leave; choosing min-harm reducer"
+        )
+
+        def harm(j: int) -> float:
+            col = self.tableau[:-1, j]
+            # sum of positive coefficients on zero-RHS rows (the “blockers”)
+            return sum(col[i] for i in zero_rows if col[i] > tol)
+
+        # Prefer columns with the least harm to zero-RHS rows; then largest reducer on the artificial row; then smallest j
+        j_pick = min(cand, key=lambda j: (harm(j), -row[j], j))
+
+        # IMPORTANT: do NOT set _phase1_forced_pivot here. Let Harris pick.
+        # This will typically select a zero-RHS row (θ=0) => feasibility preserved, basis changes.
+        return int(j_pick)
+
+    def _has_viable_leaving_row(self, j: int, tol: float) -> bool:
+        # Any positive column entry in row-space? (primal feasibility, RHS assumed >= -tol)
+        col = self.tableau[:-1, j]
+        return (col > tol).any()
+
+    def select_pivot_column(self, phase, strict=False):
+
+        # If not using Devex, keep your original behavior
+        if getattr(self, "_pricing", "bland") != "devex":
+            if phase == 1:
+                return self.select_pivot_column_phase1_feasibility_directed()
+            elif phase == 2:
+                return self.select_pivot_column_phase2()
+
+        A  = self.tableau
+        rc = A[-1, :-1].copy()  # reduced costs (objective row without RHS)
+
+        # --- legacy pick (used to infer sign + for override) ---
         if phase == 1:
-            objective_row = self.tableau[-1, :-1]
-            # Find indices where coefficients are negative (< 0)
-            pivot_cols = np.where(objective_row < -1e-8)[0]
-            # Exclude columns already in basis_vars
-            eligible_cols = [col for col in pivot_cols if col not in self.basis_vars]
-            totsu_logger.debug(f"eligible cols = {eligible_cols}")
-            if not eligible_cols:
-                totsu_logger.debug(f"No eligible pivot columns found in Phase {phase}.")
-                return None  # No eligible columns
-            # Determine which eligible column has the smallest value in the objective row.
-            obj_values = objective_row[eligible_cols]
-            col = eligible_cols[np.argmin(obj_values)]  # choose the column with the minimum objective value
-            return col
-        elif phase == 2:
-            col = self.select_pivot_column_phase2()
-            #totsu_logger.debug(f"{col} was selected by pivot_colmn (phase 2)")
-            return col
+            j0 = self.select_pivot_column_phase1_feasibility_directed()
+            if j0 is not None:
+                names = self.index_to_var_name()
+                totsu_logger.debug("Phase-I: using feasibility-directed entering col %d (%s)", j0, names[j0])
+                return j0
+        else:
+            j0 = self.select_pivot_column_phase2()
+        # j0 may be None if optimal/degenerate; we’ll guard later.
+
+        # Your helper for sign convention
+        improving = self._improving_mask(rc, phase)
+        cand_idx = np.where(improving)[0]
+        if cand_idx.size == 0:
+            totsu_logger.debug("no column was selected by devex pivot_column (no improving candidates)")
+            return j0  # fall back (usually None → signals optimal/phase-done)
+
+        # --- tabu filter (only if alternatives exist) ---
+        if not hasattr(self, "_tabu_ttl"):       self._tabu_ttl = 0
+        if not hasattr(self, "_tabu_leave_col"): self._tabu_leave_col = None
+        if self._tabu_ttl > 0 and self._tabu_leave_col is not None:
+            cand_wo_tabu = [j for j in cand_idx if j != self._tabu_leave_col]
+            if cand_wo_tabu:
+                cand_idx = np.array(cand_wo_tabu, dtype=int)
+
+        # (If you moved TTL countdown to the solver loop, you can drop this)
+        if self._tabu_ttl > 0:
+            self._tabu_ttl -= 1
+            if self._tabu_ttl == 0:
+                self._tabu_leave_col = None
+
+        # --- avoid artificial re-entry when alternatives exist ---
+        names = self.index_to_var_name()
+        basis_set = set(self.basis_vars)
+        filtered = [j for j in cand_idx
+                    if not (isinstance(names[j], str)
+                            and names[j].startswith("artificial_")
+                            and (j not in basis_set))]
+        if filtered:
+            cand_idx = np.array(filtered, dtype=int)
+
+        # --- Devex weights + scoring ---
+        if getattr(self, "_devex_weights", None) is None or len(self._devex_weights) != rc.size:
+            self._devex_weights = np.ones(rc.size, dtype=float)
+
+        w = np.maximum(self._devex_weights[cand_idx], 1e-16)
+        scores = np.abs(rc[cand_idx]) / np.sqrt(w)
+        if scores.size == 0:
+            totsu_logger.debug("no column was selected by devex pivot_column (no scores computed)")
+            return j0
+
+        j_enter = cand_idx[int(np.argmax(scores))]
+
+        # --- legacy override: avoid artificial if legacy found non-artificial ---
+        if j0 is not None:
+            name_devex  = names[j_enter]
+            name_legacy = names[j0]
+            if (isinstance(name_devex, str) and name_devex.startswith("artificial_")
+                and not (isinstance(name_legacy, str) and name_legacy.startswith("artificial_"))
+                and improving[j0]):
+                totsu_logger.debug(f"Devex pivot column overridden: picking legacy {j0} ({name_legacy}) over devex {j_enter} ({name_devex})")
+                return int(j0)
+
+        totsu_logger.debug(f"Devex pivot column selected: {j_enter} with score {scores[np.argmax(scores)]}")
+        return int(j_enter)
+
         
     def select_pivot_column_phase2(self):
         objective_row = self.tableau[-1, :-1]
@@ -195,21 +458,140 @@ class Tableau:
         totsu_logger.debug(f"The column of the most negative coefficient out of [{obj_values}/{eligible_cols}] is {col}")
         return int(col)
 
-    def select_pivot_row(self, pivot_col):
-        # Apply the minimum ratio test
+    def select_pivot_row(self, pivot_col, phase: int = 2, strict=False):
         ratios = self.compute_ratios(pivot_col, len(self.constraints))
-        if ratios:
-            # Extract only the ratio values for finding the minimum ratio
-            min_ratio = min(r[0] for r in ratios)
-            # Now find the pivot rows that match this minimum ratio within the tolerance
-            pivot_rows = [i for r, i in ratios if abs(r - min_ratio) <= 1e-8]
-        else:
+        if not ratios:
+            # No valid leaving row for this column
             totsu_logger.debug("no row was selected by pivot_row")
             return None  # Unbounded
-        
-        #totsu_logger.debug(f"{pivot_rows[0]} was selected by pivot_row")
 
-        return pivot_rows[0]  # Choose the first one (Bland's Rule)
+        # --- tie set ---
+        rmin = min(r for r, _ in ratios)
+        tol = 1e-10
+        ties = [i for r, i in ratios if abs(r - rmin) <= tol]
+
+        if strict or phase == 1:
+            # prefer removing artificials when tied
+            idx2name = self.index_to_var_name()
+            arti = [i for i in ties if "artificial" in idx2name[self.basis_vars[i]]]
+            if arti:
+                return min(arti)
+            return min(ties)  # Bland fallback
+        else:
+            # original behavior (first of ties)
+            return ties[0]
+
+    def select_pivot_row_harris(self, col: int, phase: int) -> int | None:
+        eps_piv = 1e-12
+        tol = 1e-12 if phase == 2 else 1e-10
+        
+        # ---------- Phase-I feasibility-directed: honor forced leaving row ----------
+        forced = getattr(self, "_phase1_forced_pivot", None)
+        if phase == 1 and forced is not None:
+            i_forced, j_forced = forced
+            if j_forced == col:
+                A = self.tableau
+                tol = getattr(self, "tol", 1e-9)
+                eps_piv = 1e-12
+                harris_tol = 1e-12
+
+                Acol = A[:-1, col]
+                rhs  = A[:-1, -1]
+
+                a_forced = A[i_forced, col]
+                # Compute full Harris ratios first
+                ratios = [(rhs[i] / Acol[i], i) for i in range(len(rhs)) if Acol[i] > eps_piv]
+                if not ratios:
+                    setattr(self, "_phase1_forced_pivot", None)
+                    return None
+
+                rmin, i_min = min(ratios, key=lambda t: t[0])
+                gamma = 1e-7 * (1.0 + abs(rmin))
+
+                if a_forced > eps_piv:
+                    r_forced = rhs[i_forced] / a_forced
+                    # Only force if the forced row is within the Harris band of the min ratio
+                    if r_forced <= rmin + gamma and r_forced >= -harris_tol:
+                        totsu_logger.debug(
+                            f"[Phase-I] Forcing leaving row {i_forced} on col {col} (a_ij={a_forced:.3g}, step={r_forced:.3g})"
+                        )
+                        setattr(self, "_phase1_forced_pivot", None)
+                        return i_forced
+                    else:
+                        totsu_logger.debug(
+                            f"[Phase-I] Reject force: forced row {i_forced} ratio={r_forced:.3g} "
+                            f"not within Harris band of min ratio={rmin:.3g} (row {i_min})"
+                        )
+                else:
+                    totsu_logger.debug(
+                        f"[Phase-I] Forced row {i_forced} invalid on col {col} (a_ij={a_forced:.3g} ≤ tol); falling back."
+                    )
+
+                # consume hint after evaluating
+                setattr(self, "_phase1_forced_pivot", None)
+
+        A = self.tableau
+        Acol = A[:-1, col]           # exclude objective row
+        rhs  = A[:-1, -1]
+
+        # First pass: eligible rows and ratios
+        ratios = []
+        for i, aij in enumerate(Acol):
+            if aij > eps_piv:
+                ratios.append((rhs[i] / aij, i, aij))
+        if not ratios:
+            totsu_logger.debug("no row was selected by Harris pivot_row")
+            return None
+
+        rmin = min(r for r, _, _ in ratios)
+
+        # Harris band
+        gamma = 1e-7 * (1.0 + abs(rmin))
+        band = [(r, i, aij) for (r, i, aij) in ratios if r <= rmin + gamma]
+        if not band:
+            totsu_logger.debug("no row was selected by Harris pivot_row after banding")
+            return None
+
+        # Your existing preference: (remove artificials first, then strongest pivot, then row index)
+        def pref_key(t):
+            r, i, aij = t
+            is_art = 0 if str(self.basis_vars[i]).startswith("artificial_") else 1
+            return (is_art, -abs(aij), i)
+
+        band.sort(key=pref_key)
+
+        # If lex disabled or no tie after your key, keep your choice
+        if not getattr(self, "_lex_ratio", False):
+            return band[0][1]
+
+        # Detect ties under your preference key’s first two components
+        # (artificial priority and |aij|). We keep only those sharing the best pair.
+        best_is_art, best_neg_abs = pref_key(band[0])[:2]
+        tied = [(r, i, aij) for (r, i, aij) in band
+                if pref_key((r, i, aij))[:2] == (best_is_art, best_neg_abs)]
+
+        if len(tied) == 1:
+            return tied[0][1]
+
+        # Lexicographic tie-break among 'tied'
+        cols_wo_rhs = A.shape[1] - 1
+        vecs = []
+        for r, i, aij in tied:
+            piv = A[i, col]
+            if abs(piv) <= tol:
+                continue
+            v = (A[i, :cols_wo_rhs] / piv).copy()
+            v[col] = 0.0                     # ignore pivot column itself
+            vecs.append((i, tuple(np.round(v, 15))))  # stable compare
+
+        if not vecs:
+            # fallback to your original pick if something filtered everything out
+            return band[0][1]
+
+        # Pick lexicographically smallest normalized row
+        i_star = min(vecs, key=lambda t: t[1])[0]
+        totsu_logger.debug(f"[Lex] candidates={ [i for _,i,_ in tied] } chosen={i_star}")
+        return int(i_star)
 
     def pivot_operation(self, pivot_row, pivot_col, phase=1):
         pivot_element = self.tableau[pivot_row, pivot_col]
@@ -243,7 +625,38 @@ class Tableau:
         self.tableau[-1, :] -= factor * self.tableau[pivot_row, :]
 
         # Record the tableau after pivot
-        self.history.append(self.take_snapshot(phase, pivot_col, pivot_row, entering_var_idx, leaving_var_idx))
+        if self.history is not None:
+            self.history.append(self.take_snapshot(phase, pivot_col, pivot_row, entering_var_idx, leaving_var_idx))
+
+        # reward columns that actually pivoted
+        if getattr(self, "_devex_weights", None) is not None:
+            # compute step length for this pivot
+            step = float(self.tableau[pivot_row, -1])  # RHS of the pivot row *after* normalization is 1
+            # but better compute *before* row normalization:
+            # step = rhs_before / aij_before   # store these right before you pivot
+
+            obj_before = getattr(self, "_obj_before", None)
+            obj_after  = float(self.tableau[-1, -1])  # or your current objective getter
+
+            degenerate = (step <= 1e-14) or (obj_before is not None and abs(obj_after - obj_before) <= 1e-14)
+
+            # --- UPDATE WEIGHTS ONLY IF NOT DEGENERATE ---
+            if degenerate:
+                # expose to solver loop:
+                self._last_deg = bool(degenerate)
+                self._last_delta_obj = None if obj_before is None else (obj_after - obj_before)
+                totsu_logger.warning(f"[Devex] degenerate pivot detected (step={step}, obj_before={obj_before}, obj_after={obj_after}), weights unchanged")
+            else:
+                j = int(pivot_col)
+                self._devex_weights[j] = max(1.0, self._devex_weights[j] + 1.0)
+                totsu_logger.debug(f"[Devex] weight[{pivot_col}] -> {self._devex_weights[pivot_col]}")
+
+                # after pivot completes & you know the leaving column index j_leave
+                self._tabu_leave_col = int(leaving_var_idx)
+                self._tabu_ttl = 5  # forbid re-entry for next 5 pivots
+
+            # remember objective for next iteration
+            self._obj_before = obj_after
 
         # Debugging output
         index_to_var_name = self.index_to_var_name()
@@ -298,6 +711,36 @@ class Tableau:
             """
             objective_row = self.tableau[-1, :-1]
             return all(coef >= -1e-8 for coef in objective_row)
+
+    def is_phase1_feasible(self, tol: float = 1e-9) -> bool:
+        """
+        Phase-I feasibility gate:
+        - All RHS must be >= -tol (primal feasible),
+        - Any basic artificial must have RHS <= tol (i.e., driven to ~0).
+        """
+        import numpy as np
+
+        rhs = self.tableau[:-1, -1]
+        if np.any(rhs < -tol):
+            totsu_logger.warning(f"Phase-I infeasible: some RHS < -tol ({tol}): {rhs}")
+            return False
+
+        names = self.index_to_var_name()
+        for i, j in enumerate(self.basis_vars):
+            nm = names[j]
+            if isinstance(nm, str) and nm.startswith("artificial_"):
+                # Artificial still carrying positive mass → not feasible yet
+                if self.tableau[i, -1] > tol:
+                    totsu_logger.warning(f"Phase-I infeasible: artificial basic var {nm} has RHS = {self.tableau[i, -1]} > tol ({tol})")    
+                    return False
+
+        # also check the Phase-I objective value
+        obj_val = float(self.tableau[-1, -1])
+        if abs(obj_val) > 1e-7:   # slightly looser than tol
+            totsu_logger.warning(f"Phase-I infeasible: objective value = {obj_val} > tol ({tol})")
+            return False
+
+        return True
 
     def is_feasible(self):
         if self.updated_tableau is None:
@@ -392,7 +835,8 @@ class Tableau:
                     self.tableau[-1, :] -= coef * self.tableau[i, :]
 
         # Record the tableau after setting the Phase II objective
-        self.history.append(self.take_snapshot(2))
+        if self.history is not None:
+            self.history.append(self.take_snapshot(2))
 
         self.print_tableau("phase2 objective set")
 
@@ -653,3 +1097,14 @@ class Tableau:
     def var_name_to_index(self):
         var_name_to_index = {var.name: idx for idx, var in enumerate(self.variables)}
         return var_name_to_index
+
+    def _improving_mask(self, rc: "np.ndarray", phase: int) -> "np.ndarray[bool]":
+        # If your current code uses different signs per phase, encode it here.
+        # Example (common):
+        #   Phase I (min sum artificials): positive reduced cost improves
+        #   Phase II (max original objective with negated row): negative improves
+        tol = getattr(self, "tol", 1e-9)
+        if phase == 1:
+            return rc > tol
+        else:
+            return rc < -tol

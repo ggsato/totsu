@@ -19,7 +19,7 @@ class TableauVisualizer:
         - mode (str): 'standalone' for standalone Dash app or 'jupyter' for Jupyter notebook.
         """
         self.model = model
-        self.solver = SuperSimplexSolver()
+        self.solver = SuperSimplexSolver(use_tableau_history=True)
         self.history = []
         self.use_jupyter = use_jupyter
         self.app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -43,10 +43,12 @@ class TableauVisualizer:
         - mode: 'inline' for JupyterDash
         - debug: Boolean indicating whether to run in debug mode
         """
+        totsu_logger.info("Launching Tableau Visualizer Dash app.")
         if not self.history:
             totsu_logger.warning("No history to display. Please solve the model first.")
             return
 
+        totsu_logger.info(f"Total iterations recorded: {len(self.history)}")
         if self.use_jupyter:
             self.app.run_server(mode='inline', debug=True, **kwargs)
         else:
@@ -54,6 +56,7 @@ class TableauVisualizer:
 
     def setup_dash_layout(self):
         """Configures the Dash app layout and callbacks."""
+        totsu_logger.info("Setting up Dash layout for tableau visualization.")
         self.app.layout = dbc.Container([
             # Header
             dbc.Row(

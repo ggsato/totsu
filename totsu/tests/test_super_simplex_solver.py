@@ -612,3 +612,17 @@ def test_unbounded_fixed_variable(solver, create_unbounded_fixed_variable_model)
     with pytest.raises(UnboundedProblemError) as exc_info:
         solution = solver.solve(create_unbounded_fixed_variable_model)
     assert "unbounded" in str(exc_info.value).lower(), "Unboundedness not correctly detected."
+
+def test_phase1_devex_lex_smoke():
+    m = ConcreteModel()
+    m.x = Var(within=NonNegativeReals)
+    m.y = Var(within=NonNegativeReals)
+    m.c = ConstraintList()
+    m.c.add(m.x + m.y == 1)     # equality → artificial
+    m.c.add(2*m.x + 3*m.y >= 1) # ≥ → surplus + artificial
+    m.obj = Objective(expr=5*m.x + 4*m.y, sense=minimize)
+
+    s = SuperSimplexSolver(max_itr=10, pricing="devex", lex_ratio=True,
+                           phase1_cost_perturb=1e-9, phase1_rhs_perturb=1e-10)
+    sol = s.solve(m)
+    assert sol is not None
