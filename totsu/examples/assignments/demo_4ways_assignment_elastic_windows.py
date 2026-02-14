@@ -1,5 +1,5 @@
 from pyomo.environ import *
-from typing import Callable
+from typing import Any, Callable, Dict, Tuple
 
 from totsu.core.advanced_branch_and_bound_solver import AdvancedBranchAndBound
 from totsu.utils.elastic_feasibility_tool import ElasticFeasibilityTool, ElasticResult
@@ -169,7 +169,9 @@ def report_elastic_infeasibility_for_4way(
 
     demand_violation: Dict[Any, float] = {}
     worker_violation: Dict[Any, float] = {}
-    window_violation: Dict[Tuple[Any, Any], float] = {}
+    window_early_violation: Dict[Tuple[Any, Any], float] = {}
+    window_late_violation: Dict[Tuple[Any, Any], float] = {}
+    window_violation_other: Dict[Tuple[Any, Any], float] = {}
 
     for dev in result.deviations:
         v = dev.var.value
@@ -195,14 +197,23 @@ def report_elastic_infeasibility_for_4way(
             worker_violation[w] = worker_violation.get(w, 0.0) + v
 
         # --- Time window violations: group by (customer, day) ---
-        elif cname in ("window", "window_elastic"):
+        elif cname in ("window", "window_elastic", "window_early", "window_late"):
             if len(dev.index) >= 2:
                 c, d = dev.index[0], dev.index[1]
             elif len(dev.index) == 1:
                 c, d = dev.index[0], "?"
             else:
                 c, d = "?", "?"
-            window_violation[(c, d)] = window_violation.get((c, d), 0.0) + v
+            generated_name = getattr(dev, "generated_constraint_name", "")
+
+            if cname == "window_early" or "window_early" in generated_name:
+                bucket = window_early_violation
+            elif cname == "window_late" or "window_late" in generated_name:
+                bucket = window_late_violation
+            else:
+                bucket = window_violation_other
+
+            bucket[(c, d)] = bucket.get((c, d), 0.0) + v
 
         # else: other components (forbidden, etc.) can be added as needed
 
@@ -225,12 +236,24 @@ def report_elastic_infeasibility_for_4way(
         printer("\nNo worker-availability violations detected (within tolerance).")
 
     # 3. Customer windows violated (early/late service)
-    if window_violation:
-        printer("\nCustomer window violations (by customer, day):")
-        for (c, d), v in sorted(window_violation.items(), key=lambda kv: -kv[1]):
-            printer(f"  - customer {c}, day {d}: window violation ≈ {v:.3f}")
+    if window_early_violation:
+        printer("\nEarly window violations (by customer, day):")
+        for (c, d), v in sorted(window_early_violation.items(), key=lambda kv: -kv[1]):
+            printer(f"  - customer {c}, day {d}: early violation ≈ {v:.3f}")
     else:
-        printer("\nNo time-window violations detected (within tolerance).")
+        printer("\nNo early-window violations detected (within tolerance).")
+
+    if window_late_violation:
+        printer("\nLate window violations (by customer, day):")
+        for (c, d), v in sorted(window_late_violation.items(), key=lambda kv: -kv[1]):
+            printer(f"  - customer {c}, day {d}: late violation ≈ {v:.3f}")
+    else:
+        printer("\nNo late-window violations detected (within tolerance).")
+
+    if window_violation_other:
+        printer("\nOther time-window violations (by customer, day):")
+        for (c, d), v in sorted(window_violation_other.items(), key=lambda kv: -kv[1]):
+            printer(f"  - customer {c}, day {d}: window violation ≈ {v:.3f}")
 
     printer("")  # final newline
 

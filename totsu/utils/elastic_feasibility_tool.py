@@ -1,9 +1,10 @@
 # totsu/core/elastic_feasibility_tool.py
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from pyomo.environ import Constraint, Objective, Var, NonNegativeReals, minimize, value
+from pyomo.environ import Block, Constraint, Objective, Var, NonNegativeReals, maximize, minimize, value
 from pyomo.core.base.constraint import _ConstraintData
 
 from ..utils.model_processor import ModelProcessor
@@ -27,6 +28,9 @@ class ElasticDeviation:
     component_name: str
     index: Tuple[Any, ...]
     original_name: str
+    sense: str
+    bound: float
+    generated_constraint_name: str
 
 
 @dataclass
@@ -48,13 +52,14 @@ class ElasticFeasibilityTool:
               body >= lb  →  body - e = lb
               body == rhs →  body + s - e = rhs
               lb <= body <= ub → split into GE & LE pieces.
-    * Optionally replaces the objective by "minimize total violation".
+    * Applies objective mode selected in `apply()`.
     """
 
     def __init__(self, default_penalty: float = 1.0, tol: float = 1e-8):
         self.default_penalty = default_penalty
         self.tol = tol
-        self._counter = 0
+        self._var_counter = 0
+        self._constraint_counter = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -65,6 +70,8 @@ class ElasticFeasibilityTool:
         constraints: Optional[Iterable[Any]] = None,
         penalty_map: Optional[Dict[Any, float]] = None,
         deactivate_original_objective: bool = True,
+        objective_mode: str = "violation_only",
+        original_objective_weight: float = 1.0,
         clone: bool = True,
     ) -> ElasticResult:
         """
@@ -88,8 +95,18 @@ class ElasticFeasibilityTool:
               * Parent Constraint components
               * Component names (strings)
         deactivate_original_objective:
-            If True, deactivate the original active objective(s) and
-            create a new objective that minimizes total violation.
+            Backward-compatibility flag.
+            - True: maps to objective_mode="violation_only"
+            - False: maps to objective_mode="keep_original" when
+              objective_mode is left at default.
+        objective_mode:
+            One of:
+              * "violation_only"
+              * "original_plus_violation"
+              * "keep_original"
+        original_objective_weight:
+            Weight for the original objective expression when
+            objective_mode="original_plus_violation".
         clone:
             If True, operate on a cloned model (leaving `model` untouched).
 
@@ -114,9 +131,17 @@ class ElasticFeasibilityTool:
             new_devs = self._elasticize_constraint(working_model, con, penalty_map)
             deviations.extend(new_devs)
 
-        # 3. Replace objective with "minimize total violation", if requested
-        if deactivate_original_objective:
-            self._replace_objective_with_violation_min(working_model, deviations)
+        # 3. Apply objective mode (with backward compatibility mapping)
+        resolved_objective_mode = self._resolve_objective_mode(
+            objective_mode=objective_mode,
+            deactivate_original_objective=deactivate_original_objective,
+        )
+        self._apply_objective_mode(
+            working_model,
+            deviations=deviations,
+            objective_mode=resolved_objective_mode,
+            original_objective_weight=original_objective_weight,
+        )
 
         return ElasticResult(model=working_model, deviations=deviations)
 
@@ -209,7 +234,7 @@ class ElasticFeasibilityTool:
         ub = value(con.upper) if con.has_ub() else None
         body = con.body
 
-        name_base = con.name.replace(":", "_").replace("[", "_").replace("]", "_")
+        name_base = self._sanitize_component_name(con.name)
 
         component_name, index = self._component_and_index(con)
         original_name = con.name
@@ -233,6 +258,9 @@ class ElasticFeasibilityTool:
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
+                    sense="EQ",
+                    bound=rhs,
+                    generated_constraint_name="",
                 )
             )
             deviations.append(
@@ -243,11 +271,20 @@ class ElasticFeasibilityTool:
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
+                    sense="EQ",
+                    bound=rhs,
+                    generated_constraint_name="",
                 )
             )
 
-            new_con = Constraint(expr=body + s - e == rhs)
-            setattr(model, f"{name_base}_elastic_eq", new_con)
+            generated_name = self._new_elastic_constraint(
+                model,
+                name_base,
+                "eq",
+                body + s - e == rhs,
+            )
+            deviations[-1].generated_constraint_name = generated_name
+            deviations[-2].generated_constraint_name = generated_name
 
             totsu_logger.debug(
                 f"Elasticized equality '{original_name}' with slack {s.name} and excess {e.name}."
@@ -269,10 +306,18 @@ class ElasticFeasibilityTool:
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
+                    sense="RANGE_GE",
+                    bound=lb,
+                    generated_constraint_name="",
                 )
             )
-            con_ge = Constraint(expr=body - e_ge == lb)
-            setattr(model, f"{name_base}_elastic_ge", con_ge)
+            generated_ge = self._new_elastic_constraint(
+                model,
+                name_base,
+                "range_ge",
+                body - e_ge == lb,
+            )
+            deviations[-1].generated_constraint_name = generated_ge
 
             # LE part: body <= ub → body + s_le = ub
             s_le = self._new_deviation_var(model, f"{name_base}_le_posdev")
@@ -284,10 +329,18 @@ class ElasticFeasibilityTool:
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
+                    sense="RANGE_LE",
+                    bound=ub,
+                    generated_constraint_name="",
                 )
             )
-            con_le = Constraint(expr=body + s_le == ub)
-            setattr(model, f"{name_base}_elastic_le", con_le)
+            generated_le = self._new_elastic_constraint(
+                model,
+                name_base,
+                "range_le",
+                body + s_le == ub,
+            )
+            deviations[-1].generated_constraint_name = generated_le
 
             return deviations
 
@@ -303,11 +356,19 @@ class ElasticFeasibilityTool:
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
+                    sense="GE",
+                    bound=lb,
+                    generated_constraint_name="",
                 )
             )
 
-            new_con = Constraint(expr=body - e == lb)
-            setattr(model, f"{name_base}_elastic_ge", new_con)
+            generated_name = self._new_elastic_constraint(
+                model,
+                name_base,
+                "ge",
+                body - e == lb,
+            )
+            deviations[-1].generated_constraint_name = generated_name
 
             totsu_logger.debug(
                 f"Elasticized GE constraint '{original_name}' with excess {e.name}."
@@ -326,11 +387,19 @@ class ElasticFeasibilityTool:
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
+                    sense="LE",
+                    bound=ub,
+                    generated_constraint_name="",
                 )
             )
 
-            new_con = Constraint(expr=body + s == ub)
-            setattr(model, f"{name_base}_elastic_le", new_con)
+            generated_name = self._new_elastic_constraint(
+                model,
+                name_base,
+                "le",
+                body + s == ub,
+            )
+            deviations[-1].generated_constraint_name = generated_name
 
             totsu_logger.debug(
                 f"Elasticized LE constraint '{original_name}' with slack {s.name}."
@@ -349,25 +418,83 @@ class ElasticFeasibilityTool:
         substrings like 'slack' or 'artificial', otherwise Tableau.identify_basis_variables
         will mistakenly treat them as initial basic variables.
         """
-        name = f"elastic_dev_{base_name}_{self._counter}"
-        self._counter += 1
+        safe_base_name = re.sub(r"slack", "dev", base_name, flags=re.IGNORECASE)
+        safe_base_name = re.sub(r"artificial", "dev", safe_base_name, flags=re.IGNORECASE)
+        name = f"elastic_dev_{safe_base_name}_{self._var_counter}"
+        self._var_counter += 1
+        elastic_block = self._get_or_create_elastic_block(model)
         v = Var(within=NonNegativeReals)
-        setattr(model, name, v)
+        setattr(elastic_block, name, v)
         return v
 
-    def _replace_objective_with_violation_min(
+    def _new_elastic_constraint(self, model, base_name: str, suffix: str, expr) -> str:
+        """Create one elastic constraint under model.elastic and return its full name."""
+        elastic_block = self._get_or_create_elastic_block(model)
+        name = f"elastic_con_{base_name}_{suffix}_{self._constraint_counter}"
+        self._constraint_counter += 1
+        setattr(elastic_block, name, Constraint(expr=expr))
+        return getattr(elastic_block, name).name
+
+    def _get_or_create_elastic_block(self, model):
+        """Get model.elastic block, creating it when needed."""
+        if hasattr(model, "elastic"):
+            elastic_block = getattr(model, "elastic")
+            if not isinstance(elastic_block, Block):
+                raise TypeError("model.elastic exists but is not a Pyomo Block.")
+            return elastic_block
+
+        model.elastic = Block()
+        return model.elastic
+
+    def _sanitize_component_name(self, raw_name: str) -> str:
+        """Create a component-safe and readable base name from a Pyomo component name."""
+        sanitized = re.sub(r"[^0-9A-Za-z_]+", "_", raw_name)
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+        return sanitized or "constraint"
+
+    def _resolve_objective_mode(
+        self,
+        objective_mode: str,
+        deactivate_original_objective: bool,
+    ) -> str:
+        allowed = {"violation_only", "original_plus_violation", "keep_original"}
+        if objective_mode not in allowed:
+            raise ValueError(
+                f"Unsupported objective_mode '{objective_mode}'. "
+                f"Expected one of {sorted(allowed)}."
+            )
+
+        if objective_mode == "violation_only" and not deactivate_original_objective:
+            totsu_logger.warning(
+                "deactivate_original_objective=False is deprecated. "
+                "Mapping to objective_mode='keep_original'."
+            )
+            return "keep_original"
+
+        return objective_mode
+
+    def _apply_objective_mode(
         self,
         model,
         deviations: List[ElasticDeviation],
+        objective_mode: str,
+        original_objective_weight: float,
     ) -> None:
-        """Deactivate existing objective(s) and add 'minimize total deviation' objective."""
+        """Apply objective mode after constraints have been elasticized."""
+        if objective_mode == "keep_original":
+            return
+
+        if objective_mode not in ("violation_only", "original_plus_violation"):
+            raise ValueError(f"Unknown objective mode: {objective_mode}")
+
+        elastic_block = self._get_or_create_elastic_block(model)
+
         try:
             active_obj = ModelProcessor.get_active_objective(model)
-            active_obj.deactivate()
         except ValueError:
             active_obj = None  # no active objective; that's fine
 
-        if not deviations:
+        if objective_mode == "violation_only" and not deviations:
             totsu_logger.warning(
                 "ElasticFeasibilityTool: no deviations created; "
                 "keeping original objective."
@@ -376,10 +503,23 @@ class ElasticFeasibilityTool:
                 active_obj.activate()
             return
 
-        total_violation = sum(dev.penalty * dev.var for dev in deviations)
+        violation_expr = sum(dev.penalty * dev.var for dev in deviations)
 
-        if hasattr(model, "elastic_obj"):
-            delattr(model, "elastic_obj")
+        if active_obj is not None:
+            active_obj.deactivate()
 
-        model.elastic_obj = Objective(expr=total_violation, sense=minimize)
-        totsu_logger.debug("Replaced objective with 'minimize total elastic violation'.")
+        if objective_mode == "violation_only":
+            objective_expr = violation_expr
+        else:
+            if active_obj is None:
+                objective_expr = violation_expr
+            elif active_obj.sense == maximize:
+                objective_expr = -original_objective_weight * active_obj.expr + violation_expr
+            else:
+                objective_expr = original_objective_weight * active_obj.expr + violation_expr
+
+        if hasattr(elastic_block, "elastic_obj"):
+            elastic_block.del_component(elastic_block.elastic_obj)
+
+        elastic_block.elastic_obj = Objective(expr=objective_expr, sense=minimize)
+        totsu_logger.debug(f"Applied elastic objective mode '{objective_mode}'.")
