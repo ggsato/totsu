@@ -161,29 +161,26 @@ def build_all_sets(support_dual_types=False):
 
 def explain_choice(B, L, C, OP, DV, OI, DR):
     # W and S are dicts: W[p] = set of types that beat p, S[p] = set of types p can beat
-    BL_intersect_counter = set(DV[B]).intersection(set(OP[L]))
-    BL_intersect_resistance = set(OI[B]).intersection(set(DR[L]))
-    LC_intersect_counter = set(DV[L]).intersection(set(OP[C]))
-    LC_intersect_resistance = set(OI[L]).intersection(set(DR[C]))
+    b_weak_set = DV[B].union(OI[B])
+    l_weak_set = DV[L].union(OI[L])
+    c_weak_set = DV[C].union(OI[C])
+    BL_intersect_counter = b_weak_set.intersection(OP[L].union(DR[L]))
+    LC_intersect_counter = l_weak_set.intersection(OP[C].union(OP[C]))
+    BC_intersect_counter = b_weak_set.intersection(OP[C].union(OP[C]))
 
-    B_L_C_common_DV = set(DV[B]).intersection(set(DV[L])).intersection(set(DV[C]))
-    BL_diff = set(DV[B]) - set(DR[L])
-    LC_diff = set(DV[L]) - set(DR[C])
-    CB_diff = set(DV[C]) - set(DR[B])
+    B_L_C_common_DV = b_weak_set.intersection(l_weak_set).intersection(c_weak_set)
 
     print(f"\nSelected Bait = {B}, Leader = {L}, Cover = {C}")
-    print(f"Bait->Leader synergy(Counter): The types that punish {B} but are punished by {L} = {BL_intersect_counter}")
-    print(f"Bait->Leader synergy(Resistance): The types that {B} can not deal much damage but {L} can resist = {BL_intersect_resistance}")
-    print(f"Leader->Cover synergy(Counter): The types that punish {L} but are punished by {C} = {LC_intersect_counter}")
-    print(f"Leader->Cover synergy(Resistance): The types that {L} can not deal much damage but {C} can resist = {LC_intersect_resistance}")
+    print(f"Bait->Leader synergy: The types that punish {B} but are punished by {L} = {BL_intersect_counter}")
+    print(f"Leader->Cover synergy: The types that punish {L} but are punished by {C} = {LC_intersect_counter}")
+    print(f"Bait->Cover synergy: The types that punish {B} but are punished by {C} = {BC_intersect_counter}")
     print(f"Common threat: {B_L_C_common_DV}")
-    print(f"Uncovered threats to B: {BL_diff}")
-    print(f"Uncovered threats to L: {LC_diff}")
-    print(f"Uncovered threats to C: {CB_diff}")
+    print(f"DV[{B}] = {DV[B]}")
+    print(f"DV[{L}] = {DV[L]}")
+    print(f"DV[{C}] = {DV[C]}")
 
 class BLCTeamSelection:
-    def __init__(self, strategy, support_dual_types=False):
-        self.strategy = strategy
+    def __init__(self, support_dual_types=False):
         self.support_dual_types = support_dual_types
         self.pokemon_types = None
 
@@ -213,35 +210,55 @@ class BLCTeamSelection:
                 raise ValueError(f"Invalid type: {opt}")
         return parsed_types
 
-    def synergy_alpha(self, B, L, w1, w2):
+    def synergy_alpha(self, B, L):
         """
-        synergy_alpha(B,L) = w1 * |DV[B] ∩ OP[L]| + w2 * |OI[B] ∩ DR[L]|
-        By adjusting w1, w2, you can emphasize either concept.
+        synergy_alpha(B,L):
+        Uses the union of B's weaknesses (DV[B] ∪ OI[B]) and 
+        the union of L's strengths (OP[L] ∪ DR[L]),
+        returning |(DV[B] ∪ OI[B]) ∩ (OP[L] ∪ DR[L])|.
         """
-        term1 = self.DV[B].intersection(self.OP[L])
-        term2 = self.OI[B].intersection(self.DR[L])
 
-        return w1 * len(term1) + w2 * len(term2)
+        b_weak_set = self.DV[B].union(self.OI[B])
+        l_strong_set = self.OP[L].union(self.DR[L])
 
-    def synergy_beta(self, L, C, w3, w4):
-        """
-        synergy_beta(L,C) = w3 * |DV[L] ∩ OP[C]| + w4 * |OI[L] ∩ DR[C]|
-        By adjusting w3, w4, you can emphasize either concept.
-        """
-        term3 = self.DV[L].intersection(self.OP[C])
-        term4 = self.OI[L].intersection(self.DR[C])
+        return len(b_weak_set.intersection(l_strong_set))
 
-        return w3 * len(term3) + w4 * len(term4)
+    def synergy_beta(self, L, C):
+        """
+        synergy_beta(L,C):
+        Uses the union of L's weaknesses (DV[L] ∪ OI[L]) and 
+        the union of C's strengths (OP[C] ∪ DR[C]),
+        returning |(DV[L] ∪ OI[L]) ∩ (OP[C] ∪ DR[C])|.
+        """
 
-    def synergy_gamma(self, B, L, C):
+        l_weak_set = self.DV[L].union(self.OI[L])
+        c_strong_set = self.OP[C].union(self.DR[C])
+
+        return len(l_weak_set.intersection(c_strong_set))
+
+    def synergy_gamma(self, B, C):
         """
-        synergy_gamma(B,L,C) = 
+        synergy_gamma(B,C):
+        Uses the union of B's weaknesses (DV[B] ∪ OI[B]) and 
+        the union of C's strengths (OP[C] ∪ DR[C]),
+        returning |(DV[B] ∪ OI[B]) ∩ (OP[C] ∪ DR[C])|.
         """
-        print(f"B={B}, L={L}, C={C}")
-        BL_threats = self.DV[B].difference(self.DR[L])
-        LC_threats = self.DV[L].difference(self.DR[C])
-        CB_threats = self.DV[C].difference(self.DR[B])
-        common_threats = BL_threats.intersection(LC_threats).intersection(CB_threats)
+
+        b_weak_set = self.DV[B].union(self.OI[B])
+        c_strong_set = self.OP[C].union(self.DR[C])
+
+        return len(b_weak_set.intersection(c_strong_set))
+
+    def penalty(self, B, L, C):
+        """
+        penalty(B,L,C) = 
+        """
+        
+        b_weak_set = self.DV[B].union(self.OI[B])
+        l_weak_set = self.DV[L].union(self.OI[L])
+        c_weak_set = self.DV[C].union(self.OI[C])
+        
+        common_threats = b_weak_set.intersection(l_weak_set).intersection(c_weak_set)
 
         return len(common_threats)
 
@@ -258,46 +275,36 @@ class BLCTeamSelection:
                 initialize = self.pokemon_types
             )
 
-        # Define w1, w2 and w3, w4
-        w1 = 0
-        w2 = 0
-        w3 = 0
-        w4 = 0
-        if self.strategy == "counter":
-            w1 = 1.0
-            w3 = 1.0
-        elif self.strategy == "resistance":
-            w2 = 1.0
-            w4 = 1.0
-        else:
-            w1 = 1.0
-            w2 = 1.0
-            w3 = 1.0
-            w4 = 1.0
-
         # Define alpha, beta as Param
         if not self.support_dual_types:
             def alpha_init(m, p, q):
-                return self.synergy_alpha(p, q, w1, w2)
+                return self.synergy_alpha(p, q)
 
             def beta_init(m, q, r):
-                return self.synergy_beta(q, r, w3, w4)
+                return self.synergy_beta(q, r)
 
-            def gamma_init(m, p, q, r):
-                return self.synergy_gamma(p, q, r)
+            def gamma_init(m, p, r):
+                return self.synergy_gamma(p, r)
+
+            def penalty_init(m, p, q, r):
+                return self.penalty(p, q, r)
         else:
             def alpha_init(m, p0, p1, q0, q1):
-                return self.synergy_alpha((p0, p1), (q0, q1), w1, w2)
+                return self.synergy_alpha((p0, p1), (q0, q1))
 
             def beta_init(m, q0, q1, r0, r1):
-                return self.synergy_beta((q0, q1), (r0, r1), w3, w4)
+                return self.synergy_beta((q0, q1), (r0, r1))
 
-            def gamma_init(m, p0, p1, q0, q1, r0, r1):
-                return self.synergy_gamma((p0, p1), (q0, q1), (r0, r1))
+            def gamma_init(m, p0, p1, r0, r1):
+                return self.synergy_gamma((p0, p1), (r0, r1))
+
+            def penalty_init(m, p0, p1, q0, q1, r0, r1):
+                return self.penalty((p0, p1), (q0, q1), (r0, r1))
 
         model.alpha = Param(model.P, model.P, initialize=alpha_init, default=0)
         model.beta  = Param(model.P, model.P, initialize=beta_init, default=0)
-        model.gamma = Param(model.P, model.P, model.P, initialize=gamma_init, default=0)
+        model.gamma  = Param(model.P, model.P, initialize=gamma_init, default=0)
+        model.penalty = Param(model.P, model.P, model.P, initialize=penalty_init, default=0)
 
         # Binary variables: xB, xL, xC
         model.xB = Var(model.P, within=Binary)  # Bait
@@ -308,6 +315,8 @@ class BLCTeamSelection:
         model.zBL = Var(model.P, model.P, within=Binary) 
         # "zLC[l,c]" = xL[l]*xC[c]
         model.zLC = Var(model.P, model.P, within=Binary)
+        # "zBC[b,c]" = xB[b]*xC[c]
+        model.zBC = Var(model.P, model.P, within=Binary)
         # zTri[b,l,c] = xB[b]*xL[l]*xC[c]
         model.zTri = Var(model.P, model.P, model.P, within=Binary)
 
@@ -332,6 +341,16 @@ class BLCTeamSelection:
                 model.link_zLC.add(model.zLC[l,c] <= model.xC[c])
                 # zLC[l,c] >= xL[l] + xC[c] - 1
                 model.link_zLC.add(model.zLC[l,c] >= model.xL[l] + model.xC[c] - 1)
+
+        model.link_zBC = ConstraintList()
+        for b in model.P:
+            for c in model.P:
+                # zBC[b,c] <= xB[b]
+                model.link_zBC.add(model.zBC[b,c] <= model.xB[b])
+                # zBC[b,c] <= xC[c]
+                model.link_zBC.add(model.zBC[b,c] <= model.xC[c])
+                # zBC[b,c] >= xB[l] + xC[c] - 1
+                model.link_zBC.add(model.zBC[b,c] >= model.xB[b] + model.xC[c] - 1)
 
         # Linking constraints so zTri[b,l,c] = 1 ⇔ xB[b]=1 & xL[l]=1 & xC[c]=1
         model.link_zTri = ConstraintList()
@@ -363,6 +382,24 @@ class BLCTeamSelection:
                 return m.xB[(p0, p1)] + m.xL[(p0, p1)] + m.xC[(p0, p1)] <= 1
         model.distinct_role = Constraint(model.P, rule=distinct_role_rule)
 
+        # ========== No shared weakness between L and C ==============
+        if not self.support_dual_types:
+            def no_shared_weakness_lc(m, q, r):
+                return len(self.DV[q].intersection(self.DV[r])) * m.zLC[q, r] <= 0
+        else:
+            def no_shared_weakness_lc(m, q0, q1, r0, r1):
+                return len(self.DV[(q0, q1)].intersection(self.DV[(r0, r1)])) * m.zLC[(q0, q1), (r0, r1)] <= 0
+        model.no_shared_weakness_lc = Constraint(model.P, model.P, rule=no_shared_weakness_lc)
+
+        # ========== No shared weakness between B and C ==============
+        if not self.support_dual_types:
+            def no_shared_weakness_bc(m, p, r):
+                return len(self.DV[p].intersection(self.DV[r])) * m.zBC[p, r] <= 0
+        else:
+            def no_shared_weakness_bc(m, p0, p1, r0, r1):
+                return len(self.DV[(p0, p1)].intersection(self.DV[(r0, r1)])) * m.zBC[(p0, p1), (r0, r1)] <= 0
+        model.no_shared_weakness_bc = Constraint(model.P, model.P, rule=no_shared_weakness_bc)
+
         # ========== Objective: sum of alpha and beta with auxiliary variables ==========
 
         def synergy_expr(m):
@@ -370,14 +407,10 @@ class BLCTeamSelection:
                 sum(m.alpha[b,l] * m.zBL[b,l] for b in m.P for l in m.P)
                 +
                 sum(m.beta[l,c] * m.zLC[l,c] for l in m.P for c in m.P)
+                +
+                sum(m.gamma[b,c] * m.zBC[b,c] for b in m.P for c in m.P)
             )
-            penalty = sum(
-                m.gamma[b,l,c] * m.zTri[b,l,c]
-                for b in m.P
-                for l in m.P
-                for c in m.P
-            )
-            return synergy - penalty
+            return synergy
         model.obj = Objective(rule=synergy_expr, sense=maximize)
 
         return model
@@ -410,7 +443,7 @@ class BLCTeamSelection:
         if B is not None:
             if not self.support_dual_types:
                 print(f"fixing xB as {B}")
-                self.model.xB[p].fix(1)
+                self.model.xB[B].fix(1)
             else:
                 B_dual = self.parse_pokemon_types([B])[0]
                 print(f"fixing xB as {B_dual}")
@@ -418,7 +451,7 @@ class BLCTeamSelection:
         if L is not None:
             if not self.support_dual_types:
                 print(f"fixing xL as {L}")
-                self.model.xL[p].fix(1)
+                self.model.xL[L].fix(1)
             else:
                 L_dual = self.parse_pokemon_types([L])[0]
                 print(f"fixing xL as {L_dual}")
@@ -426,7 +459,7 @@ class BLCTeamSelection:
         if C is not None:
             if not self.support_dual_types:
                 print(f"fixing xC as {C}")
-                self.model.xC[p].fix(1)
+                self.model.xC[C].fix(1)
             else:
                 C_dual = self.parse_pokemon_types([C])[0]
                 print(f"fixing xC as {C_dual}")
@@ -443,23 +476,6 @@ class BLCTeamSelection:
             def __lt__(self, other):
                 return -self.obj < -other.obj
 
-        # Define w1, w2 and w3, w4
-        w1 = 0
-        w2 = 0
-        w3 = 0
-        w4 = 0
-        if self.strategy == "counter":
-            w1 = 1.0
-            w3 = 1.0
-        elif self.strategy == "resistance":
-            w2 = 1.0
-            w4 = 1.0
-        else:
-            w1 = 1.0
-            w2 = 1.0
-            w3 = 1.0
-            w4 = 1.0
-
         b_list = [self.parse_pokemon_types([B])[0]] if B is not None else self.model.P
         l_list = [self.parse_pokemon_types([L])[0]] if L is not None else self.model.P
         c_list = [self.parse_pokemon_types([C])[0]] if C is not None else self.model.P
@@ -468,15 +484,18 @@ class BLCTeamSelection:
             for l in l_list:
                 if l == b:
                     continue
-                for c in self.model.P:
+                for c in c_list:
                     if c == b or c == l:
                         continue
-                    # calculate alpha, beta, gamma
-                    alpha = self.synergy_alpha(b, l, w1, w2)
-                    beta = self.synergy_beta(l, c, w3, w4)
-                    gamma = self.synergy_gamma(b, l, c)
+                    # no shared weakness between l and c
+                    if len(self.DV[l].intersection(self.DV[c])) > 0 or len(self.DV[b].intersection(self.DV[c])) > 0:
+                        continue
+                    # calculate alpha, beta, penalty
+                    alpha = self.synergy_alpha(b, l)
+                    beta = self.synergy_beta(l, c)
+                    gamma = self.synergy_gamma(b, c)
                     # objective value
-                    obj = (alpha + beta) - gamma
+                    obj = alpha + beta + gamma
                     heappush(heap, BattleTeam(b, l, c, obj))
         # finally, retrieve the 1st item
         best_obj = 0
@@ -496,7 +515,6 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="A program to show the BLC team selection for pokemon battle league")
     parser.add_argument("pokemon_types", nargs="+", help="Types of pokemons. At least 3 types required.")
-    parser.add_argument("--strategy", type=str, default="both", help="The BLC strategy. counter, resistance, or both")
     parser.add_argument("--solver", type=str, default="cbc", help="The solver name")
     parser.add_argument("--use_dual", action='store_true', help="If set, both of single and dual types are considered")
     parser.add_argument("--B", type=str, help="(Optional) If specified a particular pokemon type as B, B is fixed")
@@ -520,7 +538,7 @@ if __name__ == "__main__":
     # OI[B] ∩ DR[L]: “r resists the types q can’t hurt,”
     OP, DV, OI, DR = build_all_sets()
 
-    blc = BLCTeamSelection(args.strategy, support_dual_types=args.use_dual)
+    blc = BLCTeamSelection(support_dual_types=args.use_dual)
 
     blc.build(args.pokemon_types)
 

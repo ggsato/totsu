@@ -23,7 +23,7 @@ class BBNode:
 
 class BranchAndBoundSolver:
     def __init__(self):
-        self.simplex_solver = SuperSimplexSolver()
+        self.simplex_solver = SuperSimplexSolver(max_itr=100) # 100 by default
         self.best_solution = None
         self.best_objective = None  # Will be set based on problem type
         self.nodes_explored = 0
@@ -179,6 +179,31 @@ class BranchAndBoundSolver:
 
         return branch_models
 
+    def is_integer_feasible(self, solution, model):
+        for var in ModelProcessor.get_variables(model):
+            if var.domain is Binary and solution[var.name] not in {0, 1}:  # Ensure Binary stays in {0,1}
+                return False
+            if var.domain is Integers and not abs(round(solution[var.name]) - solution[var.name]) < 1e-6:
+                return False
+        return True
+
+    def select_branching_variable(self, solution, model):
+        fractional_vars = []
+        for var in ModelProcessor.get_variables(model):
+            val = float(solution[var.name])
+            if var.domain is Binary and val not in {0, 1}:  
+                fractional_vars.append((var.name, abs(val - 0.5)))  # Prioritize closest to 0.5
+            elif var.domain is Integers and not val.is_integer():
+                fractional_vars.append((var.name, abs(val - round(val))))  # Prioritize closest to an integer
+
+        if not fractional_vars:
+            return None
+
+        # **Choose the most fractional variable for best branching**
+        fractional_vars.sort(key=lambda x: x[1], reverse=True)
+        return fractional_vars[0][0]
+
+    # Depth First Search with recursion
     def branch_and_bound(self, model):
         try:
             solution = self.simplex_solver.solve(model)
@@ -215,30 +240,6 @@ class BranchAndBoundSolver:
 
         # Branching
         self.branch(model, var, lower_bound, upper_bound)
-
-    def is_integer_feasible(self, solution, model):
-        for var in ModelProcessor.get_variables(model):
-            if var.domain is Binary and solution[var.name] not in {0, 1}:  # Ensure Binary stays in {0,1}
-                return False
-            if var.domain is Integers and not abs(round(solution[var.name]) - solution[var.name]) < 1e-6:
-                return False
-        return True
-
-    def select_branching_variable(self, solution, model):
-        fractional_vars = []
-        for var in ModelProcessor.get_variables(model):
-            val = float(solution[var.name])
-            if var.domain is Binary and val not in {0, 1}:  
-                fractional_vars.append((var.name, abs(val - 0.5)))  # Prioritize closest to 0.5
-            elif var.domain is Integers and not val.is_integer():
-                fractional_vars.append((var.name, abs(val - round(val))))  # Prioritize closest to an integer
-
-        if not fractional_vars:
-            return None
-
-        # **Choose the most fractional variable for best branching**
-        fractional_vars.sort(key=lambda x: x[1], reverse=True)
-        return fractional_vars[0][0]
 
     def branch(self, model, var, lower_bound, upper_bound):
         branch_models = []
