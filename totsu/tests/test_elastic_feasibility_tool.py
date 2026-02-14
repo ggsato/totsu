@@ -2,6 +2,7 @@ import pytest
 from pyomo.environ import Constraint, ConcreteModel, NonNegativeReals, Objective, Set, Var, minimize
 from pyomo.repn import generate_standard_repn
 
+from totsu.core.totsu_simplex_solver import TotsuSimplexSolver
 from totsu.utils.elastic_feasibility_tool import ElasticFeasibilityTool
 
 
@@ -141,3 +142,30 @@ def test_populate_violation_summary_computes_sorted_costs():
     assert result.violation_breakdown[0]["cost"] == pytest.approx(10.0)
     assert result.violation_breakdown[1]["component_name"] == "c_ge"
     assert result.violation_breakdown[1]["cost"] == pytest.approx(2.5)
+
+
+def test_le_constraint_violation_creates_positive_excess_and_expected_cost():
+    model = ConcreteModel()
+    model.assigned = Var(within=NonNegativeReals)
+    model.must_assign = Constraint(expr=model.assigned == 1)
+    model.window_late = Constraint(expr=model.assigned <= 0)
+    model.obj = Objective(expr=0.0, sense=minimize)
+
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+    result = tool.apply(
+        model,
+        constraints=["window_late"],
+        penalty_map={"window_late": 100.0},
+        objective_mode="violation_only",
+        clone=False,
+    )
+
+    solver = TotsuSimplexSolver()
+    solver.solve(model)
+    tool.populate_violation_summary(result, tol=1e-8)
+
+    window_dev = [dev for dev in result.deviations if dev.component_name == "window_late"]
+    assert len(window_dev) == 1
+    assert window_dev[0].var.value == pytest.approx(1.0)
+    assert window_dev[0].var.value > 0.0
+    assert result.total_violation_cost == pytest.approx(100.0)

@@ -50,8 +50,8 @@ class ElasticFeasibilityTool:
         - Detect <=, >=, ==, or ranged (lb <= body <= ub).
         - Add non-negative deviation variables (slack/excess).
         - Replace with an equality including deviations:
-              body <= ub  →  body + s = ub
-              body >= lb  →  body - e = lb
+              body <= ub  →  body - e = ub
+              body >= lb  →  body + s = lb
               body == rhs →  body + s - e = rhs
               lb <= body <= ub → split into GE & LE pieces.
     * Applies objective mode selected in `apply()`.
@@ -341,13 +341,13 @@ class ElasticFeasibilityTool:
             con.deactivate()
             totsu_logger.debug(f"Splitting ranged constraint '{original_name}' into GE/LE.")
 
-            # GE part: body >= lb → body - e_ge = lb
-            e_ge = self._new_deviation_var(model, f"{name_base}_ge_negdev")
+            # GE part: body >= lb → body + s_ge = lb
+            s_ge = self._new_deviation_var(model, f"{name_base}_ge_posdev")
             deviations.append(
                 ElasticDeviation(
-                    var=e_ge,
+                    var=s_ge,
                     penalty=penalty,
-                    kind="excess_ge",
+                    kind="slack_ge",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -360,17 +360,17 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "range_ge",
-                body - e_ge == lb,
+                body + s_ge == lb,
             )
             deviations[-1].generated_constraint_name = generated_ge
 
-            # LE part: body <= ub → body + s_le = ub
-            s_le = self._new_deviation_var(model, f"{name_base}_le_posdev")
+            # LE part: body <= ub → body - e_le = ub
+            e_le = self._new_deviation_var(model, f"{name_base}_le_negdev")
             deviations.append(
                 ElasticDeviation(
-                    var=s_le,
+                    var=e_le,
                     penalty=penalty,
-                    kind="slack_le",
+                    kind="excess_le",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -383,7 +383,7 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "range_le",
-                body + s_le == ub,
+                body - e_le == ub,
             )
             deviations[-1].generated_constraint_name = generated_le
 
@@ -392,12 +392,12 @@ class ElasticFeasibilityTool:
         # Pure GE: body >= lb
         if lb is not None and ub is None:
             con.deactivate()
-            e = self._new_deviation_var(model, f"{name_base}_negdev")
+            s = self._new_deviation_var(model, f"{name_base}_posdev")
             deviations.append(
                 ElasticDeviation(
-                    var=e,
+                    var=s,
                     penalty=penalty,
-                    kind="excess",
+                    kind="slack",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -411,24 +411,24 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "ge",
-                body - e == lb,
+                body + s == lb,
             )
             deviations[-1].generated_constraint_name = generated_name
 
             totsu_logger.debug(
-                f"Elasticized GE constraint '{original_name}' with excess {e.name}."
+                f"Elasticized GE constraint '{original_name}' with slack {s.name}."
             )
             return deviations
 
         # Pure LE: body <= ub
         if ub is not None and lb is None:
             con.deactivate()
-            s = self._new_deviation_var(model, f"{name_base}_posdev")
+            e = self._new_deviation_var(model, f"{name_base}_negdev")
             deviations.append(
                 ElasticDeviation(
-                    var=s,
+                    var=e,
                     penalty=penalty,
-                    kind="slack",
+                    kind="excess",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -442,12 +442,12 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "le",
-                body + s == ub,
+                body - e == ub,
             )
             deviations[-1].generated_constraint_name = generated_name
 
             totsu_logger.debug(
-                f"Elasticized LE constraint '{original_name}' with slack {s.name}."
+                f"Elasticized LE constraint '{original_name}' with excess {e.name}."
             )
             return deviations
 
