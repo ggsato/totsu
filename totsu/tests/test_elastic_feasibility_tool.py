@@ -111,3 +111,33 @@ def test_deactivate_original_objective_false_keeps_original_objective():
 
     assert result.model.obj.active
     assert not hasattr(result.model.elastic, "elastic_obj")
+
+
+def test_populate_violation_summary_computes_sorted_costs():
+    model = _build_infeasible_model()
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+
+    result = tool.apply(
+        model,
+        constraints=["c_ge", "c_le"],
+        objective_mode="keep_original",
+        clone=True,
+    )
+
+    # Deterministic values for summary verification
+    for dev in result.deviations:
+        if dev.component_name == "c_ge":
+            dev.var.set_value(2.5)  # cost = 2.5
+            dev.penalty = 1.0
+        elif dev.component_name == "c_le":
+            dev.var.set_value(1.0)  # cost = 10.0
+            dev.penalty = 10.0
+
+    tool.populate_violation_summary(result, tol=1e-6)
+
+    assert result.total_violation_cost == pytest.approx(12.5)
+    assert len(result.violation_breakdown) == 2
+    assert result.violation_breakdown[0]["component_name"] == "c_le"
+    assert result.violation_breakdown[0]["cost"] == pytest.approx(10.0)
+    assert result.violation_breakdown[1]["component_name"] == "c_ge"
+    assert result.violation_breakdown[1]["cost"] == pytest.approx(2.5)

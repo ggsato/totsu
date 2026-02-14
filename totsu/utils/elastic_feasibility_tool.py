@@ -37,6 +37,8 @@ class ElasticDeviation:
 class ElasticResult:
     model: Any
     deviations: List[ElasticDeviation] = field(default_factory=list)
+    total_violation_cost: float = 0.0
+    violation_breakdown: List[dict] = field(default_factory=list)
 
 
 class ElasticFeasibilityTool:
@@ -143,7 +145,50 @@ class ElasticFeasibilityTool:
             original_objective_weight=original_objective_weight,
         )
 
-        return ElasticResult(model=working_model, deviations=deviations)
+        result = ElasticResult(model=working_model, deviations=deviations)
+        # Initial values before solve (all deviation vars are typically unset).
+        self.populate_violation_summary(result, tol=self.tol)
+        return result
+
+    @staticmethod
+    def populate_violation_summary(result: ElasticResult, tol: float = 0.0) -> ElasticResult:
+        """
+        Populate `result.total_violation_cost` and `result.violation_breakdown`
+        from current deviation variable values.
+
+        Call this after solve to get the final structural diagnosis numbers.
+        """
+        breakdown: List[dict] = []
+
+        for dev in result.deviations:
+            dev_val = dev.var.value
+            if dev_val is None or dev_val <= tol:
+                continue
+
+            cost = dev.penalty * dev_val
+            breakdown.append(
+                {
+                    "component_name": dev.component_name,
+                    "deviation": dev_val,
+                    "penalty": dev.penalty,
+                    "cost": cost,
+                }
+            )
+
+        # Stable and deterministic ordering for reporting:
+        # highest cost first, then name, deviation, penalty.
+        breakdown.sort(
+            key=lambda row: (
+                -row["cost"],
+                str(row["component_name"]),
+                -row["deviation"],
+                -row["penalty"],
+            )
+        )
+
+        result.violation_breakdown = breakdown
+        result.total_violation_cost = sum(row["cost"] for row in breakdown)
+        return result
 
     # ------------------------------------------------------------------
     # Core transformations

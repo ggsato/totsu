@@ -1,8 +1,10 @@
 from pyomo.environ import *
-from typing import Any, Callable, Dict, Tuple
+from typing import Callable
+import logging
 
 from totsu.core.advanced_branch_and_bound_solver import AdvancedBranchAndBound
 from totsu.utils.elastic_feasibility_tool import ElasticFeasibilityTool, ElasticResult
+from totsu.utils.logger import totsu_logger
 
 def build_model(with_windows: bool = False) -> ConcreteModel:
     m = ConcreteModel()
@@ -167,98 +169,36 @@ def report_elastic_infeasibility_for_4way(
     It looks at dev.component_name and dev.index to categorize deviations.
     """
 
-    demand_violation: Dict[Any, float] = {}
-    worker_violation: Dict[Any, float] = {}
-    window_early_violation: Dict[Tuple[Any, Any], float] = {}
-    window_late_violation: Dict[Tuple[Any, Any], float] = {}
-    window_violation_other: Dict[Tuple[Any, Any], float] = {}
+    # Refresh costs/deviations from solved variable values.
+    ElasticFeasibilityTool.populate_violation_summary(result, tol=tol)
 
-    for dev in result.deviations:
-        v = dev.var.value
-        if v is None or v <= tol:
-            continue  # ignore tiny violations / numerical noise
+    printer("=== Structural Diagnosis Summary ===")
+    printer("")
+    printer(f"Total violation cost: {result.total_violation_cost:.3f}")
+    printer("")
+    printer("Top structural tensions:")
 
-        cname = dev.component_name
-
-        # --- Client demand unmet: group by customer c ---
-        if cname in ("client_demand", "client_demand_elastic"):
-            if len(dev.index) >= 1:
-                c = dev.index[0]
-            else:
-                c = "?"
-            demand_violation[c] = demand_violation.get(c, 0.0) + v
-
-        # --- Worker availability / total days: group by worker w ---
-        elif cname in ("worker_total_days", "worker_daily", "worker_daily_elastic"):
-            if len(dev.index) >= 1:
-                w = dev.index[0]
-            else:
-                w = "?"
-            worker_violation[w] = worker_violation.get(w, 0.0) + v
-
-        # --- Time window violations: group by (customer, day) ---
-        elif cname in ("window", "window_elastic", "window_early", "window_late"):
-            if len(dev.index) >= 2:
-                c, d = dev.index[0], dev.index[1]
-            elif len(dev.index) == 1:
-                c, d = dev.index[0], "?"
-            else:
-                c, d = "?", "?"
-            generated_name = getattr(dev, "generated_constraint_name", "")
-
-            if cname == "window_early" or "window_early" in generated_name:
-                bucket = window_early_violation
-            elif cname == "window_late" or "window_late" in generated_name:
-                bucket = window_late_violation
-            else:
-                bucket = window_violation_other
-
-            bucket[(c, d)] = bucket.get((c, d), 0.0) + v
-
-        # else: other components (forbidden, etc.) can be added as needed
-
-    printer("=== Elastic infeasibility summary (4-way W–C–D–S) ===")
-
-    # 1. Customers whose demand is not fully met
-    if demand_violation:
-        printer("\nCustomers with unmet demand (by total shortfall):")
-        for c, v in sorted(demand_violation.items(), key=lambda kv: -kv[1]):
-            printer(f"  - customer {c}: shortfall ≈ {v:.3f}")
+    top_rows = result.violation_breakdown[:5]
+    if not top_rows:
+        printer("  - none (all deviations within tolerance)")
     else:
-        printer("\nNo client-demand violations detected (within tolerance).")
+        for row in top_rows:
+            printer(
+                "  - "
+                f"{row['component_name']}: "
+                f"deviation={row['deviation']:.3f}, "
+                f"penalty={row['penalty']:.3f}, "
+                f"cost={row['cost']:.3f}"
+            )
 
-    # 2. Workers whose availability / capacity is violated
-    if worker_violation:
-        printer("\nWorkers with availability violations (overtime / overload):")
-        for w, v in sorted(worker_violation.items(), key=lambda kv: -kv[1]):
-            printer(f"  - worker {w}: violation ≈ {v:.3f}")
-    else:
-        printer("\nNo worker-availability violations detected (within tolerance).")
-
-    # 3. Customer windows violated (early/late service)
-    if window_early_violation:
-        printer("\nEarly window violations (by customer, day):")
-        for (c, d), v in sorted(window_early_violation.items(), key=lambda kv: -kv[1]):
-            printer(f"  - customer {c}, day {d}: early violation ≈ {v:.3f}")
-    else:
-        printer("\nNo early-window violations detected (within tolerance).")
-
-    if window_late_violation:
-        printer("\nLate window violations (by customer, day):")
-        for (c, d), v in sorted(window_late_violation.items(), key=lambda kv: -kv[1]):
-            printer(f"  - customer {c}, day {d}: late violation ≈ {v:.3f}")
-    else:
-        printer("\nNo late-window violations detected (within tolerance).")
-
-    if window_violation_other:
-        printer("\nOther time-window violations (by customer, day):")
-        for (c, d), v in sorted(window_violation_other.items(), key=lambda kv: -kv[1]):
-            printer(f"  - customer {c}, day {d}: window violation ≈ {v:.3f}")
-
-    printer("")  # final newline
+    printer("")
 
 
 if __name__ == "__main__":
+    # Reduce solver/demo logger noise for clearer diagnosis output.
+    totsu_logger.setLevel("ERROR")
+    logging.getLogger("pyomo").setLevel(logging.ERROR)
+
     penalties = {
         "shortfall": 1000,
         "overtime": 100,
