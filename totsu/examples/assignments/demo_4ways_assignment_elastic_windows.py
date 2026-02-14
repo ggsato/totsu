@@ -169,28 +169,100 @@ def report_elastic_infeasibility_for_4way(
     It looks at dev.component_name and dev.index to categorize deviations.
     """
 
-    # Refresh costs/deviations from solved variable values.
-    ElasticFeasibilityTool.populate_violation_summary(result, tol=tol)
+    def build_display_label(component_name, index):
+        idx = tuple(index) if index is not None else ()
+
+        if component_name in ("window_early", "window_late"):
+            if len(idx) >= 2:
+                return f"{component_name}[{idx[0]}, day {idx[1]}]"
+            return component_name
+
+        if component_name == "client_demand":
+            if len(idx) >= 1:
+                return f"demand_constraint[{idx[0]}]"
+            return "demand_constraint"
+
+        if idx:
+            return f"{component_name}[{', '.join(str(v) for v in idx)}]"
+        return component_name
+
+    def build_category(component_name):
+        if component_name in ("window_early", "window_late"):
+            return "delivery windows"
+        if component_name == "client_demand":
+            return "demand shortfalls"
+        if component_name in ("worker_daily", "worker_total_days", "worker_availability"):
+            return "worker availability"
+        return "other"
+
+    rows = []
+    for dev in result.deviations:
+        deviation = dev.var.value
+        if deviation is None or deviation <= tol:
+            continue
+
+        cost = dev.penalty * deviation
+        rows.append(
+            {
+                "display_label": build_display_label(dev.component_name, dev.index),
+                "deviation": deviation,
+                "penalty": dev.penalty,
+                "cost": cost,
+                "category": build_category(dev.component_name),
+            }
+        )
+
+    rows.sort(key=lambda row: (-row["cost"], row["display_label"]))
+    total_violation_cost = sum(row["cost"] for row in rows)
 
     printer("=== Structural Diagnosis Summary ===")
     printer("")
-    printer(f"Total violation cost: {result.total_violation_cost:.3f}")
+    printer(f"Total violation cost: {total_violation_cost:g}")
     printer("")
     printer("Top structural tensions:")
 
-    top_rows = result.violation_breakdown[:5]
+    top_rows = rows[:5]
     if not top_rows:
         printer("  - none (all deviations within tolerance)")
     else:
         for row in top_rows:
             printer(
                 "  - "
-                f"{row['component_name']}: "
-                f"deviation={row['deviation']:.3f}, "
-                f"penalty={row['penalty']:.3f}, "
-                f"cost={row['cost']:.3f}"
+                f"{row['display_label']}: "
+                f"deviation={row['deviation']:.1f}, "
+                f"penalty={row['penalty']:g}, "
+                f"cost={row['cost']:g}"
             )
 
+    category_cost = {}
+    for row in rows:
+        cat = row["category"]
+        category_cost[cat] = category_cost.get(cat, 0.0) + row["cost"]
+
+    category_priority = {
+        "demand shortfalls": 0,
+        "delivery windows": 1,
+        "worker availability": 2,
+        "other": 3,
+    }
+    dominant_category = (
+        sorted(
+            category_cost.items(),
+            key=lambda kv: (-kv[1], category_priority.get(kv[0], 99), kv[0]),
+        )[0][0]
+        if category_cost
+        else "other"
+    )
+
+    if dominant_category == "demand shortfalls":
+        question_subject = "demand"
+    else:
+        question_subject = dominant_category
+
+    printer("")
+    printer("Interpretation:")
+    printer(f"The model absorbs infeasibility primarily through {dominant_category}.")
+    printer(f"Are {question_subject} constraints negotiable?")
     printer("")
 
 
