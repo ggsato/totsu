@@ -1,9 +1,35 @@
+import argparse
+
 from .transportation import create_model, capacities, requirements
 from .....utils.elastic_feasibility_tool import ElasticFeasibilityTool
 from totsu.core.super_simplex_solver import SuperSimplexSolver, InfeasibleProblemError
-from pyomo.environ import Objective, ConstraintList, SolverFactory
+from pyomo.environ import Objective, SolverFactory
+
+
+def _solve_with_selected_solver(solver_name, solver, model, logfile):
+    if solver_name == "glpk":
+        return solver.solve(
+            model,
+            tee=True,
+            keepfiles=True,
+            symbolic_solver_labels=True,
+            logfile=logfile,
+        )
+    return solver.solve(model)
+
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Run transportation elasticity analysis with selectable solver."
+    )
+    parser.add_argument(
+        "--solver",
+        choices=("glpk", "super_simplex"),
+        default="glpk",
+        help="Solver to use for elastic analysis.",
+    )
+    args = parser.parse_args()
+
     # increase the requirements of T2 by 100%
     requirements["T2"] *= 2
 
@@ -27,32 +53,25 @@ def main():
     print("block objectives:", list(elastic_model.elastic.component_objects(Objective, active=True)))
 
     # 3) solve the elastic model and observe the results
-    #solver = SuperSimplexSolver()
-    solver = SolverFactory("glpk")
+    if args.solver == "super_simplex":
+        solver = SuperSimplexSolver()
+    else:
+        solver = SolverFactory("glpk")
+    print(f"using solver: {args.solver}")
 
     print("solving the original model (infeasible)")
     try:
-        #solver.solve(model)
-        res = solver.solve(
-            model,
-            tee=True,                # display solver output
-            keepfiles=True,          # keep .lp / .mps files
-            symbolic_solver_labels=True,  
-            logfile="solver_original.log",    # keep log file
-        )
+        res = _solve_with_selected_solver(args.solver, solver, model, "solver_original.log")
+        if args.solver == "super_simplex":
+            print(f"original solve variable count: {len(res)}")
+    except InfeasibleProblemError as ex:
+        print("Original model infeasible (expected for this scenario):", str(ex))
     except Exception as ex:
         print("An error occurred while solving the original model:", str(ex))
 
     print("solving the elastic model with objective_mode='violation_only'")
     try:
-        #solver.solve(elastic_model)
-        res = solver.solve(
-            elastic_model,
-            tee=True,                
-            keepfiles=True,          # keep .lp / .mps
-            symbolic_solver_labels=True,  
-            logfile="solver.log",    # keep log file
-        )
+        _solve_with_selected_solver(args.solver, solver, elastic_model, "solver.log")
         # 供給合計
         total_shipped = sum(
             (elastic_model.x[s, t].value or 0.0)
@@ -89,12 +108,8 @@ def main():
         )
         elastic_model_plus = result_plus.model
         print("solving the elastic model with objective_mode='original_plus_violation'")
-        solver.solve(
-            elastic_model_plus,
-            tee=True,
-            keepfiles=True,
-            symbolic_solver_labels=True,
-            logfile="solver_original_plus.log",
+        _solve_with_selected_solver(
+            args.solver, solver, elastic_model_plus, "solver_original_plus.log"
         )
         ElasticFeasibilityTool.populate_violation_summary(
             result_plus, tol=1e-8, include_variable_contributions=True
