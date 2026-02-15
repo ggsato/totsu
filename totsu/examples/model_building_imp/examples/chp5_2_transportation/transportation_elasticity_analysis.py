@@ -68,6 +68,11 @@ def main():
     ElasticFeasibilityTool.populate_violation_summary(result, tol=1e-8, include_variable_contributions=True)
 
     print("total_violation_cost =", result.total_violation_cost)
+    print("objective_mode =", result.objective_mode)
+    print("active_objective_value =", result.active_objective_value)
+    print("original_objective_value =", result.original_objective_value)
+    print("violation_objective_value =", result.violation_objective_value)
+    print("combined_objective_value =", result.combined_objective_value)
     for row in result.violation_breakdown[:10]:
         print(row)
 
@@ -95,6 +100,11 @@ def main():
             result_plus, tol=1e-8, include_variable_contributions=True
         )
         print("original_plus total_violation_cost =", result_plus.total_violation_cost)
+        print("objective_mode =", result_plus.objective_mode)
+        print("active_objective_value =", result_plus.active_objective_value)
+        print("original_objective_value =", result_plus.original_objective_value)
+        print("violation_objective_value =", result_plus.violation_objective_value)
+        print("combined_objective_value =", result_plus.combined_objective_value)
         for row in result_plus.violation_breakdown[:10]:
             print(row)
     except ValueError as ex:

@@ -46,6 +46,14 @@ class ElasticResult:
     deviations: List[ElasticDeviation] = field(default_factory=list)
     total_violation_cost: float = 0.0
     violation_breakdown: List[dict] = field(default_factory=list)
+    objective_mode: Optional[str] = None
+    active_objective_value: Optional[float] = None
+    original_objective_value: Optional[float] = None
+    violation_objective_value: Optional[float] = None
+    combined_objective_value: Optional[float] = None
+    _original_objective_expr: Any = field(default=None, repr=False, compare=False)
+    _violation_objective_expr: Any = field(default=None, repr=False, compare=False)
+    _combined_objective_expr: Any = field(default=None, repr=False, compare=False)
 
 
 class ElasticFeasibilityTool:
@@ -145,14 +153,21 @@ class ElasticFeasibilityTool:
             objective_mode=objective_mode,
             deactivate_original_objective=deactivate_original_objective,
         )
-        self._apply_objective_mode(
+        objective_terms = self._apply_objective_mode(
             working_model,
             deviations=deviations,
             objective_mode=resolved_objective_mode,
             original_objective_weight=original_objective_weight,
         )
 
-        result = ElasticResult(model=working_model, deviations=deviations)
+        result = ElasticResult(
+            model=working_model,
+            deviations=deviations,
+            objective_mode=resolved_objective_mode,
+            _original_objective_expr=objective_terms.get("original_expr"),
+            _violation_objective_expr=objective_terms.get("violation_expr"),
+            _combined_objective_expr=objective_terms.get("combined_expr"),
+        )
         # Initial values before solve (all deviation vars are typically unset).
         self.populate_violation_summary(result, tol=self.tol)
         return result
@@ -217,6 +232,52 @@ class ElasticFeasibilityTool:
 
         result.violation_breakdown = breakdown
         result.total_violation_cost = sum(row["cost"] for row in breakdown)
+        ElasticFeasibilityTool.populate_objective_summary(result)
+        return result
+
+    @staticmethod
+    def _safe_eval_float(expr) -> Optional[float]:
+        if expr is None:
+            return None
+        try:
+            for var in identify_variables(expr, include_fixed=True):
+                if var.value is None:
+                    return None
+        except Exception:
+            # Fall back to safe evaluation path below.
+            pass
+        try:
+            evaluated = value(expr, exception=False)
+            if evaluated is None:
+                return None
+            return float(evaluated)
+        except Exception:
+            return None
+
+    @staticmethod
+    def populate_objective_summary(result: ElasticResult) -> ElasticResult:
+        """
+        Populate objective value fields from the current solved model state.
+
+        This is safe to call before solve; fields remain None when values
+        cannot be evaluated yet.
+        """
+        active_obj = next(
+            result.model.component_data_objects(Objective, active=True, descend_into=True),
+            None,
+        )
+        result.active_objective_value = (
+            ElasticFeasibilityTool._safe_eval_float(active_obj.expr) if active_obj is not None else None
+        )
+        result.original_objective_value = ElasticFeasibilityTool._safe_eval_float(
+            result._original_objective_expr
+        )
+        result.violation_objective_value = ElasticFeasibilityTool._safe_eval_float(
+            result._violation_objective_expr
+        )
+        result.combined_objective_value = ElasticFeasibilityTool._safe_eval_float(
+            result._combined_objective_expr
+        )
         return result
 
     @staticmethod
@@ -618,20 +679,26 @@ class ElasticFeasibilityTool:
         deviations: List[ElasticDeviation],
         objective_mode: str,
         original_objective_weight: float,
-    ) -> None:
+    ) -> Dict[str, Any]:
         """Apply objective mode after constraints have been elasticized."""
+        try:
+            active_obj = ModelProcessor.get_active_objective(model)
+        except ValueError:
+            active_obj = None  # no active objective; that's fine
+
+        original_expr = active_obj.expr if active_obj is not None else None
+
         if objective_mode == "keep_original":
-            return
+            return {
+                "original_expr": original_expr,
+                "violation_expr": None,
+                "combined_expr": original_expr,
+            }
 
         if objective_mode not in ("violation_only", "original_plus_violation"):
             raise ValueError(f"Unknown objective mode: {objective_mode}")
 
         elastic_block = self._get_or_create_elastic_block(model)
-
-        try:
-            active_obj = ModelProcessor.get_active_objective(model)
-        except ValueError:
-            active_obj = None  # no active objective; that's fine
 
         if objective_mode == "violation_only" and not deviations:
             totsu_logger.warning(
@@ -640,7 +707,11 @@ class ElasticFeasibilityTool:
             )
             if active_obj is not None:
                 active_obj.activate()
-            return
+            return {
+                "original_expr": original_expr,
+                "violation_expr": None,
+                "combined_expr": original_expr,
+            }
 
         violation_expr = sum(dev.penalty * dev.var for dev in deviations)
 
@@ -665,11 +736,22 @@ class ElasticFeasibilityTool:
             else:
                 objective_expr = original_objective_weight * active_obj.expr + violation_expr
 
+        combined_expr = (
+            (original_expr + violation_expr)
+            if (objective_mode == "original_plus_violation" and original_expr is not None)
+            else violation_expr
+        )
+
         if hasattr(elastic_block, "elastic_obj"):
             elastic_block.del_component(elastic_block.elastic_obj)
 
         elastic_block.elastic_obj = Objective(expr=objective_expr, sense=minimize)
         totsu_logger.debug(f"Applied elastic objective mode '{objective_mode}'.")
+        return {
+            "original_expr": original_expr,
+            "violation_expr": violation_expr,
+            "combined_expr": combined_expr,
+        }
 
     @staticmethod
     def _validate_objective_is_finite(

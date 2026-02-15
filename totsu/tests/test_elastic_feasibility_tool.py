@@ -277,3 +277,52 @@ def test_violation_only_allows_model_with_inf_original_objective():
 
     assert hasattr(result.model.elastic, "elastic_obj")
     assert result.model.elastic.elastic_obj.active
+
+
+def test_objective_value_breakdown_violation_only_after_solve():
+    model = _build_infeasible_model()
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+
+    result = tool.apply(
+        model,
+        constraints=["c_ge", "c_le"],
+        objective_mode="violation_only",
+        clone=False,
+    )
+
+    solver = TotsuSimplexSolver()
+    solver.solve(model)
+    tool.populate_violation_summary(result, tol=1e-8)
+
+    assert result.objective_mode == "violation_only"
+    assert result.active_objective_value is not None
+    assert result.violation_objective_value is not None
+    assert result.active_objective_value == pytest.approx(result.violation_objective_value, abs=1e-8)
+
+
+def test_objective_value_breakdown_original_plus_violation_after_solve():
+    model = _build_infeasible_model()
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+
+    result = tool.apply(
+        model,
+        constraints=["c_ge", "c_le"],
+        objective_mode="original_plus_violation",
+        original_objective_weight=1.0,
+        clone=False,
+    )
+
+    solver = TotsuSimplexSolver()
+    solver.solve(model)
+    tool.populate_violation_summary(result, tol=1e-8)
+
+    assert result.objective_mode == "original_plus_violation"
+    assert result.active_objective_value is not None
+    assert result.combined_objective_value is not None
+    assert result.original_objective_value is not None
+    assert result.violation_objective_value is not None
+    assert result.combined_objective_value == pytest.approx(
+        result.original_objective_value + result.violation_objective_value,
+        abs=1e-8,
+    )
+    assert result.active_objective_value == pytest.approx(result.combined_objective_value, abs=1e-8)
