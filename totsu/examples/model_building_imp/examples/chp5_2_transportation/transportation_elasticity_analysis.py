@@ -71,5 +71,36 @@ def main():
     for row in result.violation_breakdown[:10]:
         print(row)
 
+    # 5) optional: run original_plus_violation mode
+    print("building elastic model with objective_mode='original_plus_violation'")
+    try:
+        result_plus = tool.apply(
+            model,
+            constraints=["supply_constraints"],
+            penalty_map={"supply_constraints": 10.0},
+            objective_mode="original_plus_violation",
+            original_objective_weight=1.0,
+            clone=True,
+        )
+        elastic_model_plus = result_plus.model
+        print("solving the elastic model with objective_mode='original_plus_violation'")
+        solver.solve(
+            elastic_model_plus,
+            tee=True,
+            keepfiles=True,
+            symbolic_solver_labels=True,
+            logfile="solver_original_plus.log",
+        )
+        ElasticFeasibilityTool.populate_violation_summary(
+            result_plus, tol=1e-8, include_variable_contributions=True
+        )
+        print("original_plus total_violation_cost =", result_plus.total_violation_cost)
+        for row in result_plus.violation_breakdown[:10]:
+            print(row)
+    except ValueError as ex:
+        print("original_plus_violation validation failed:", str(ex))
+    except Exception as ex:
+        print("An error occurred while solving original_plus_violation model:", str(ex))
+
 if __name__ == "__main__":
     main()

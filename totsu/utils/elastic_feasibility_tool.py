@@ -1,6 +1,7 @@
 # totsu/core/elastic_feasibility_tool.py
 
 from dataclasses import dataclass, field
+import math
 import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -651,6 +652,14 @@ class ElasticFeasibilityTool:
         else:
             if active_obj is None:
                 objective_expr = violation_expr
+            else:
+                self._validate_objective_is_finite(
+                    obj_expr=active_obj.expr,
+                    objective_name=getattr(active_obj, "name", "<unknown>"),
+                    objective_mode=objective_mode,
+                )
+            if active_obj is None:
+                objective_expr = violation_expr
             elif active_obj.sense == maximize:
                 objective_expr = -original_objective_weight * active_obj.expr + violation_expr
             else:
@@ -661,3 +670,79 @@ class ElasticFeasibilityTool:
 
         elastic_block.elastic_obj = Objective(expr=objective_expr, sense=minimize)
         totsu_logger.debug(f"Applied elastic objective mode '{objective_mode}'.")
+
+    @staticmethod
+    def _validate_objective_is_finite(
+        obj_expr,
+        objective_name: Optional[str] = None,
+        objective_mode: Optional[str] = None,
+    ) -> None:
+        """
+        Validate that objective constant/coefficients are finite.
+        Raises ValueError when inf/-inf/nan is detected.
+        """
+        repn = None
+        repn_error = None
+        for compute_values in (True, False):
+            try:
+                repn = generate_standard_repn(obj_expr, compute_values=compute_values)
+                repn_error = None
+                break
+            except Exception as err:
+                repn_error = err
+                repn = None
+
+        if repn is None:
+            raise ValueError(
+                "ElasticFeasibilityTool cannot analyze the original objective for "
+                f"objective_mode='{objective_mode or 'original_plus_violation'}'. "
+                f"Objective '{objective_name or '<unknown>'}' could not be represented: {repn_error}"
+            )
+
+        problems: List[str] = []
+
+        def _non_finite_label(val) -> Optional[str]:
+            try:
+                num = float(val)
+            except Exception:
+                try:
+                    num = float(value(val))
+                except Exception:
+                    return None
+            if math.isnan(num):
+                return "nan"
+            if math.isinf(num):
+                return "inf" if num > 0 else "-inf"
+            return None
+
+        const_label = _non_finite_label(getattr(repn, "constant", None))
+        if const_label is not None:
+            problems.append(f"constant={const_label}")
+
+        for var, coef in zip(getattr(repn, "linear_vars", ()), getattr(repn, "linear_coefs", ())):
+            label = _non_finite_label(coef)
+            if label is not None:
+                problems.append(f"linear coef for '{var.name}'={label}")
+
+        q_vars = getattr(repn, "quadratic_vars", ()) or ()
+        q_coefs = getattr(repn, "quadratic_coefs", ()) or ()
+        for pair, coef in zip(q_vars, q_coefs):
+            label = _non_finite_label(coef)
+            if label is not None:
+                try:
+                    v0, v1 = pair
+                    term = f"('{v0.name}', '{v1.name}')"
+                except Exception:
+                    term = str(pair)
+                problems.append(f"quadratic coef for {term}={label}")
+
+        if problems:
+            detail = "; ".join(problems[:5])
+            raise ValueError(
+                "ElasticFeasibilityTool detected non-finite values in the original objective "
+                f"while objective_mode='{objective_mode or 'original_plus_violation'}' "
+                f"(objective '{objective_name or '<unknown>'}'): {detail}. "
+                "Do not use inf/-inf/nan in objectives. For forbidden arcs, remove the variable/domain, "
+                "fix x=0, or use a finite Big-M. In the transportation example, None costs converted to inf "
+                "are a common cause."
+            )

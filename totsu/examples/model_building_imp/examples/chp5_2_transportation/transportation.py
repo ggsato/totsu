@@ -6,6 +6,9 @@ suppliers = ["S1", "S2", "S3"]
 capacities = {"S1": 135, "S2": 56, "S3": 93}
 customers = ["T1", "T2", "T3", "T4"]
 requirements = {"T1": 63, "T2": 83, "T3": 39, "T4": 91}
+# Use a large finite value instead of inf so LP writers remain valid even when
+# the original objective is included in elastic objectives.
+FORBIDDEN_ARC_COST = 1_000_000.0
 cost = {
     "S1": {"T1": 132, "T2": None, "T3": 97, "T4": 103},
     "S2": {"T1": 85, "T2": 91, "T3": None, "T4": None},
@@ -23,7 +26,13 @@ def create_model():
     # Parameters
     model.capacities = Param(model.S, initialize=capacities)
     model.requirements = Param(model.T, initialize=requirements)
-    model.cost = Param(model.S, model.T, initialize=lambda model, s, t: cost[s][t] if cost[s][t] is not None else float('inf'))
+    model.cost = Param(
+        model.S,
+        model.T,
+        initialize=lambda model, s, t: (
+            cost[s][t] if cost[s][t] is not None else FORBIDDEN_ARC_COST
+        ),
+    )
 
     # Variables
     model.x = Var(model.S, model.T, domain=NonNegativeReals)

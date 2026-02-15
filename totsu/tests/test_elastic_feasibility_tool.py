@@ -1,5 +1,5 @@
 import pytest
-from pyomo.environ import Constraint, ConstraintList, ConcreteModel, NonNegativeReals, Objective, Set, Var, minimize
+from pyomo.environ import Constraint, ConstraintList, ConcreteModel, NonNegativeReals, Objective, Param, Set, Var, minimize
 from pyomo.repn import generate_standard_repn
 
 from totsu.core.totsu_simplex_solver import TotsuSimplexSolver
@@ -230,3 +230,50 @@ def test_populate_violation_summary_with_variable_contributions():
             first = row["variable_contributions"][0]
             assert "var" in first
             assert "value" in first
+
+
+def _build_model_with_inf_objective_coef() -> ConcreteModel:
+    m = ConcreteModel()
+    m.x = Var(within=NonNegativeReals)
+    m.inf_cost = Param(initialize=float("inf"))
+    m.force = Constraint(expr=m.x >= 1)
+    m.obj = Objective(expr=m.inf_cost * m.x, sense=minimize)
+    return m
+
+
+def test_original_plus_violation_rejects_non_finite_original_objective():
+    model = _build_model_with_inf_objective_coef()
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+
+    with pytest.raises(ValueError, match=r"(?i)(inf|non-finite).*(objective_mode|original objective)"):
+        tool.apply(
+            model,
+            constraints=["force"],
+            objective_mode="original_plus_violation",
+            clone=True,
+        )
+
+    with pytest.raises(ValueError) as exc:
+        tool.apply(
+            model,
+            constraints=["force"],
+            objective_mode="original_plus_violation",
+            clone=True,
+        )
+    msg = str(exc.value)
+    assert "Big-M" in msg or "forbidden arcs" in msg or "fix x=0" in msg
+
+
+def test_violation_only_allows_model_with_inf_original_objective():
+    model = _build_model_with_inf_objective_coef()
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+
+    result = tool.apply(
+        model,
+        constraints=["force"],
+        objective_mode="violation_only",
+        clone=True,
+    )
+
+    assert hasattr(result.model.elastic, "elastic_obj")
+    assert result.model.elastic.elastic_obj.active
