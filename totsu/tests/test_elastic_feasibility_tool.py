@@ -1,5 +1,5 @@
 import pytest
-from pyomo.environ import Constraint, ConcreteModel, NonNegativeReals, Objective, Set, Var, minimize
+from pyomo.environ import Constraint, ConstraintList, ConcreteModel, NonNegativeReals, Objective, Set, Var, minimize
 from pyomo.repn import generate_standard_repn
 
 from totsu.core.totsu_simplex_solver import TotsuSimplexSolver
@@ -140,8 +140,16 @@ def test_populate_violation_summary_computes_sorted_costs():
     assert len(result.violation_breakdown) == 2
     assert result.violation_breakdown[0]["component_name"] == "c_le"
     assert result.violation_breakdown[0]["cost"] == pytest.approx(10.0)
+    assert result.violation_breakdown[0]["constraint_name"] == "c_le"
+    assert result.violation_breakdown[0]["deviation_var"].startswith("elastic.elastic_dev_")
+    assert result.violation_breakdown[0]["generated_constraint_name"].startswith("elastic.elastic_con_")
+    assert result.violation_breakdown[0]["index"] == ()
+    assert result.violation_breakdown[0]["sense"] == "LE"
+    assert result.violation_breakdown[0]["bound"] == pytest.approx(3.0)
+    assert result.violation_breakdown[0]["kind"] == "excess"
     assert result.violation_breakdown[1]["component_name"] == "c_ge"
     assert result.violation_breakdown[1]["cost"] == pytest.approx(2.5)
+    assert result.violation_breakdown[1]["constraint_name"] == "c_ge"
 
 
 def test_le_constraint_violation_creates_positive_excess_and_expected_cost():
@@ -169,3 +177,56 @@ def test_le_constraint_violation_creates_positive_excess_and_expected_cost():
     assert window_dev[0].var.value == pytest.approx(1.0)
     assert window_dev[0].var.value > 0.0
     assert result.total_violation_cost == pytest.approx(100.0)
+
+
+def test_populate_violation_summary_with_variable_contributions():
+    model = ConcreteModel()
+    model.x = Var(within=NonNegativeReals)
+    model.supply_constraints = ConstraintList()
+    model.supply_constraints.add(model.x <= 1)
+    model.supply_constraints.add(model.x <= 0)
+    model.force = Constraint(expr=model.x >= 3)
+    model.obj = Objective(expr=0.0, sense=minimize)
+
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+    result = tool.apply(
+        model,
+        constraints=["supply_constraints"],
+        objective_mode="violation_only",
+        clone=False,
+    )
+
+    solver = TotsuSimplexSolver()
+    solver.solve(model)
+    tool.populate_violation_summary(
+        result,
+        tol=1e-8,
+        include_variable_contributions=True,
+        max_contrib_vars=5,
+    )
+
+    assert result.violation_breakdown
+    for row in result.violation_breakdown:
+        for key in (
+            "component_name",
+            "deviation",
+            "penalty",
+            "cost",
+            "constraint_name",
+            "deviation_var",
+            "generated_constraint_name",
+            "index",
+            "sense",
+            "bound",
+            "kind",
+            "body_value",
+            "violation_amount",
+            "variable_contributions",
+        ):
+            assert key in row
+        assert isinstance(row["index"], tuple)
+        assert isinstance(row["variable_contributions"], list)
+        if row["variable_contributions"]:
+            first = row["variable_contributions"][0]
+            assert "var" in first
+            assert "value" in first

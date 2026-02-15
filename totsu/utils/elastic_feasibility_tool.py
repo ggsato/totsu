@@ -5,7 +5,12 @@ import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from pyomo.environ import Block, Constraint, Objective, Var, NonNegativeReals, maximize, minimize, value
-from pyomo.core.base.constraint import _ConstraintData
+try:
+    from pyomo.core.base.constraint import ConstraintData
+except ImportError:  # pragma: no cover - compatibility with older Pyomo
+    from pyomo.core.base.constraint import _ConstraintData as ConstraintData
+from pyomo.core.expr.visitor import identify_variables
+from pyomo.repn import generate_standard_repn
 
 from ..utils.model_processor import ModelProcessor
 from ..utils.logger import totsu_logger
@@ -31,6 +36,7 @@ class ElasticDeviation:
     sense: str
     bound: float
     generated_constraint_name: str
+    original_constraint: Optional[ConstraintData] = None
 
 
 @dataclass
@@ -151,7 +157,12 @@ class ElasticFeasibilityTool:
         return result
 
     @staticmethod
-    def populate_violation_summary(result: ElasticResult, tol: float = 0.0) -> ElasticResult:
+    def populate_violation_summary(
+        result: ElasticResult,
+        tol: float = 0.0,
+        include_variable_contributions: bool = False,
+        max_contrib_vars: int = 10,
+    ) -> ElasticResult:
         """
         Populate `result.total_violation_cost` and `result.violation_breakdown`
         from current deviation variable values.
@@ -166,14 +177,30 @@ class ElasticFeasibilityTool:
                 continue
 
             cost = dev.penalty * dev_val
-            breakdown.append(
-                {
-                    "component_name": dev.component_name,
-                    "deviation": dev_val,
-                    "penalty": dev.penalty,
-                    "cost": cost,
-                }
-            )
+            row = {
+                "component_name": dev.component_name,
+                "deviation": dev_val,
+                "penalty": dev.penalty,
+                "cost": cost,
+                "constraint_name": dev.original_name,
+                "index": tuple(dev.index) if dev.index is not None else (),
+                "sense": dev.sense,
+                "bound": float(dev.bound),
+                "kind": dev.kind,
+                "deviation_var": dev.var.name,
+                "generated_constraint_name": dev.generated_constraint_name,
+            }
+            if include_variable_contributions:
+                row["violation_amount"] = dev_val
+                row["body_value"] = ElasticFeasibilityTool._safe_value_of_constraint_body(
+                    dev.original_constraint
+                )
+                row["variable_contributions"] = ElasticFeasibilityTool._collect_variable_contributions(
+                    dev.original_constraint,
+                    max_contrib_vars=max_contrib_vars,
+                )
+
+            breakdown.append(row)
 
         # Stable and deterministic ordering for reporting:
         # highest cost first, then name, deviation, penalty.
@@ -183,6 +210,7 @@ class ElasticFeasibilityTool:
                 str(row["component_name"]),
                 -row["deviation"],
                 -row["penalty"],
+                str(row["constraint_name"]),
             )
         )
 
@@ -190,10 +218,69 @@ class ElasticFeasibilityTool:
         result.total_violation_cost = sum(row["cost"] for row in breakdown)
         return result
 
+    @staticmethod
+    def _safe_value_of_constraint_body(con: Optional[ConstraintData]) -> Optional[float]:
+        if con is None:
+            return None
+        try:
+            return float(value(con.body))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _collect_variable_contributions(
+        con: Optional[ConstraintData],
+        max_contrib_vars: int,
+    ) -> List[Dict[str, Any]]:
+        if con is None:
+            return []
+
+        try:
+            repn = generate_standard_repn(con.body, compute_values=False)
+        except Exception:
+            repn = None
+
+        contributions: List[Dict[str, Any]] = []
+        if repn is not None and repn.is_linear():
+            for var, coef in zip(repn.linear_vars, repn.linear_coefs):
+                var_val = var.value if var.value is not None else 0.0
+                coef_val = float(coef)
+                contribution = coef_val * float(var_val)
+                contributions.append(
+                    {
+                        "var": var.name,
+                        "value": float(var_val),
+                        "coef": coef_val,
+                        "contribution": contribution,
+                        "abs_contribution": abs(contribution),
+                    }
+                )
+        else:
+            seen = set()
+            for var in identify_variables(con.body, include_fixed=True):
+                if id(var) in seen:
+                    continue
+                seen.add(id(var))
+                var_val = var.value if var.value is not None else 0.0
+                contributions.append(
+                    {
+                        "var": var.name,
+                        "value": float(var_val),
+                        "coef": None,
+                        "contribution": None,
+                        "abs_contribution": None,
+                    }
+                )
+            contributions.sort(key=lambda row: abs(row["value"]), reverse=True)
+
+        if repn is not None and repn.is_linear():
+            contributions.sort(key=lambda row: row["abs_contribution"], reverse=True)
+        return contributions[:max(0, int(max_contrib_vars))]
+
     # ------------------------------------------------------------------
     # Core transformations
     # ------------------------------------------------------------------
-    def _collect_all_constraints(self, model) -> List[_ConstraintData]:
+    def _collect_all_constraints(self, model) -> List[ConstraintData]:
         """Return all active ConstraintData objects in the model."""
         return list(model.component_data_objects(Constraint, active=True, descend_into=True))
 
@@ -201,12 +288,12 @@ class ElasticFeasibilityTool:
         self,
         model,
         selection: Iterable[Any],
-    ) -> List[_ConstraintData]:
+    ) -> List[ConstraintData]:
         """Normalize various user selectors to a flat list of ConstraintData."""
-        out: List[_ConstraintData] = []
+        out: List[ConstraintData] = []
 
         def add_component(comp):
-            if isinstance(comp, _ConstraintData):
+            if isinstance(comp, ConstraintData):
                 out.append(comp)
             elif isinstance(comp, Constraint):
                 out.extend(list(comp.values()))
@@ -223,7 +310,7 @@ class ElasticFeasibilityTool:
         return out
 
     # Small helper: get component name & index tuple for a ConstraintData
-    def _component_and_index(self, con: _ConstraintData) -> Tuple[str, Tuple[Any, ...]]:
+    def _component_and_index(self, con: ConstraintData) -> Tuple[str, Tuple[Any, ...]]:
         parent = con.parent_component()
         component_name = parent.name
 
@@ -242,7 +329,7 @@ class ElasticFeasibilityTool:
 
         return component_name, index
 
-    def _get_penalty(self, con: _ConstraintData, penalty_map: Dict[Any, float]) -> float:
+    def _get_penalty(self, con: ConstraintData, penalty_map: Dict[Any, float]) -> float:
         """Find penalty from penalty_map (by ConstraintData, parent, or name), or use default."""
         if con in penalty_map:
             return penalty_map[con]
@@ -259,7 +346,7 @@ class ElasticFeasibilityTool:
     def _elasticize_constraint(
         self,
         model,
-        con: _ConstraintData,
+        con: ConstraintData,
         penalty_map: Dict[Any, float],
     ) -> List[ElasticDeviation]:
         """
@@ -306,6 +393,7 @@ class ElasticFeasibilityTool:
                     sense="EQ",
                     bound=rhs,
                     generated_constraint_name="",
+                    original_constraint=con,
                 )
             )
             deviations.append(
@@ -319,6 +407,7 @@ class ElasticFeasibilityTool:
                     sense="EQ",
                     bound=rhs,
                     generated_constraint_name="",
+                    original_constraint=con,
                 )
             )
 
@@ -354,6 +443,7 @@ class ElasticFeasibilityTool:
                     sense="RANGE_GE",
                     bound=lb,
                     generated_constraint_name="",
+                    original_constraint=con,
                 )
             )
             generated_ge = self._new_elastic_constraint(
@@ -377,6 +467,7 @@ class ElasticFeasibilityTool:
                     sense="RANGE_LE",
                     bound=ub,
                     generated_constraint_name="",
+                    original_constraint=con,
                 )
             )
             generated_le = self._new_elastic_constraint(
@@ -404,6 +495,7 @@ class ElasticFeasibilityTool:
                     sense="GE",
                     bound=lb,
                     generated_constraint_name="",
+                    original_constraint=con,
                 )
             )
 
@@ -435,6 +527,7 @@ class ElasticFeasibilityTool:
                     sense="LE",
                     bound=ub,
                     generated_constraint_name="",
+                    original_constraint=con,
                 )
             )
 
