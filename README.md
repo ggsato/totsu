@@ -27,32 +27,82 @@ It is also about measuring.
 
 # Core Capabilities
 
-## 1. Elastic Tool — Structural Diagnosis
+## Elastic Tool — Structural Diagnosis
 
 The Elastic Tool transforms infeasible or tightly constrained models into measurable systems.
 
-Instead of failing with `infeasible`, it answers:
+Instead of stopping at `infeasible`, it answers:
 
-* Which constraints absorb the stress?
+* Which constraints absorb the structural stress?
 * How much relaxation is required?
-* What is the structural cost of feasibility?
+* What is the minimum structural adjustment needed?
+* If relaxation is allowed, what is the most rational repair plan?
 
-### Example
+Elastic analysis supports two key modes:
 
+---
+
+### 🔸 Violation-Only Mode
+
+Minimizes total constraint violation.
+
+This answers:
+
+> “How far is the model from feasibility?”
+
+It measures structural deficit without considering the original objective.
+
+---
+
+### 🔸 Original + Violation Mode
+
+Minimizes:
+
+(original objective) + (penalty × violation)
+
+This answers:
+
+> “If limited relaxation is allowed, what is the most rational adjustment?”
+
+This mode does not just measure infeasibility —  
+it proposes a structurally minimal and economically consistent repair.
+
+---
+
+### Example — Transportation Model
+
+Original model:
 ```
-=== Structural Diagnosis Summary ===
+LP HAS NO PRIMAL FEASIBLE SOLUTION
+```
 
-Total violation cost: 100
+Elastic (violation_only):
+```
+Total violation cost: 750
+Supply constraints relaxed: +75 units
+```
 
-Top structural tensions:
-  - window_early[c2, day 1]: deviation=1.0, penalty=100, cost=100
+Elastic (original_plus_violation):
+```
+Relax 73 units at S3
+Relax 2 units at S2
+```
 
 Interpretation:
-The model absorbs infeasibility primarily through delivery windows.
-Are delivery windows constraints negotiable?
-```
 
-Elastic analysis makes constraint trade-offs visible.
+The model requires 75 additional units of supply.  
+Given transportation costs, the economically optimal repair is  
+to expand Supplier S3 primarily.
+
+Elastic analysis does not only diagnose infeasibility.  
+It suggests how structure should adapt.
+
+---
+
+### A Higher Perspective
+
+Optimization is not only about finding optimal answers.  
+It is also about understanding how systems bend before they break.
 
 ---
 
