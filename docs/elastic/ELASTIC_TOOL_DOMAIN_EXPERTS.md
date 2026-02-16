@@ -359,7 +359,18 @@ This is exactly the kind of trade-off **elastic feasibility** is meant to model.
 
 ---
 
-## 6. Summary: Who Does What?
+## 6. Worked Example: Transportation
+
+For a compact transportation case where supply-vs-demand elasticity is intentionally designed, see:
+
+* Module: `python -m totsu.examples.model_building_imp.examples.chp5_2_transportation.transportation_elasticity_analysis`
+* Source: [totsu/examples/model_building_imp/examples/chp5_2_transportation/transportation_elasticity_analysis.py](../../totsu/examples/model_building_imp/examples/chp5_2_transportation/transportation_elasticity_analysis.py)
+
+This example shows how penalty and target choices produce a domain-specific repair policy instead of a purely structural one.
+
+Back to generic guidance: [docs/elastic/ELASTIC_TOOL_GENERIC.md](ELASTIC_TOOL_GENERIC.md)
+
+## 7. Summary: Who Does What?
 
 ### Generic Elastic Tool
 
@@ -386,7 +397,7 @@ Together, they produce a model that is:
 
 ---
 
-## 7. Naming and `pretty_name` Guidance
+## 8. Naming and `pretty_name` Guidance
 
 Use consistent, domain-meaningful constraint names so diagnostics stay readable:
 

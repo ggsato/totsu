@@ -17,6 +17,20 @@ This lets a model stay **feasible**, even if the original constraints are imposs
 
 ---
 
+# **Why the Tool Relaxed Demand (and How to Control It)**
+
+When all constraints are elastic, the solver chooses the **cheapest** feasibility repair under the assigned penalties.  
+If demand shortfall is cheaper than adding supply, it may relax demand first.
+
+To get realistic repairs, explicitly define:
+
+* Which constraints are elastic targets
+* Penalties (weights/costs) by constraint group and index
+
+In short: the tool supplies mechanics, while you define policy.
+
+---
+
 # **2. Inputs**
 
 The generic tool receives:
@@ -153,3 +167,11 @@ Example:
 * Pretty: `Demand requirement at destination D2`
 
 The elastic mechanics remain generic; only label rendering uses domain metadata.
+
+---
+
+## Next: Operational Patterns / Domain Guidance
+
+For policy patterns and assignment-specific design choices, continue to [docs/elastic/ELASTIC_TOOL_DOMAIN_EXPERTS.md](ELASTIC_TOOL_DOMAIN_EXPERTS.md).
+
+Worked example entry point: [totsu/examples/model_building_imp/examples/chp5_2_transportation/transportation_elasticity_analysis.py](../../totsu/examples/model_building_imp/examples/chp5_2_transportation/transportation_elasticity_analysis.py)

@@ -42,7 +42,7 @@ Next, try it on your own model:
 python -m totsu.examples.demo.transportation_elastic_quickstart --help
 ```
 
-For the public API path, see `docs/TRY_YOUR_MODEL.md`.
+For the public API path, see [docs/TRY_YOUR_MODEL.md](docs/TRY_YOUR_MODEL.md).
 
 ---
 

@@ -45,3 +45,9 @@ result.print_summary()
   - equality: `relax by ±...`
 - `pretty_name` (optional): when provided, shows a domain-friendly label next to raw constraint names.
 - `print_summary()`: compact terminal view; `to_dict()` gives structured output for scripts or notebooks.
+
+## Next step: Make the repair policy explicit
+
+By default, if all constraints are elastic targets, the solver picks the cheapest feasibility repair. That can relax demand instead of supply unless you define a policy for what can move and how much each violation should cost.
+
+Continue to [docs/elastic/ELASTIC_TOOL_GENERIC.md](elastic/ELASTIC_TOOL_GENERIC.md).
