@@ -70,6 +70,18 @@ The Elastic Tool transforms infeasible or tightly constrained models into measur
 
 Instead of stopping at `infeasible`, it answers:
 
+### Elastic Structural Flow (Diagram)
+
+```mermaid
+flowchart LR
+    A["Original Model<br/>Hard Constraints"] --> B["Elastic Transformation"]
+    B --> C["Deviation Variables Added"]
+    B --> D["Penalty Terms Added"]
+    C --> E["Always-Feasible Model"]
+    D --> E
+    E --> F["Minimal Structural Repair"]
+```
+
 * Which constraints absorb the structural stress?
 * How much relaxation is required?
 * What is the minimum structural adjustment needed?
