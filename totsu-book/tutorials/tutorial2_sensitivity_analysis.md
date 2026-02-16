@@ -70,7 +70,7 @@ First, solve the LP problem and identify the optimal solution.
 ```python
 from product_mix import create_model
 from totsu.core.sensitivity_analyzer import SensitivityAnalyzer
-from pyomo.opt import SolverFactory
+from pyomo.environ import SolverFactory
 
 model = create_model()
 solver = SolverFactory("glpk")
@@ -166,4 +166,3 @@ This tutorial demonstrated:
 4. Visualizing and interpreting constraint impact and reduced costs.
 
 In the next tutorial, we will explore advanced real-world scenarios to deepen our understanding of LP models.
-

@@ -9,6 +9,43 @@ It provides tools to measure structural tension, visualize combinatorial behavio
 
 ---
 
+## Try it in 3 minutes (Elastic feasibility repair)
+
+Requires Pyomo + any LP/MILP solver available to Pyomo (HiGHS, CBC, or GLPK).
+
+Check solver availability:
+
+```bash
+python -c "from pyomo.environ import SolverFactory; print('highs', SolverFactory('highs').available(False)); print('cbc', SolverFactory('cbc').available(False)); print('glpk', SolverFactory('glpk').available(False))"
+```
+
+If you already have a working **Pyomo + solver** environment, you can run Totsu from source without extra setup.
+
+```bash
+# Clone this repository
+git clone git@github.com:ggsato/totsu.git
+cd totsu
+
+# Use auto solver detection (highs -> cbc -> glpk)
+python -m totsu.examples.demo.transportation_elastic_quickstart --solver auto
+```
+
+What you should see:
+
+* The base model is **infeasible**
+* Elastic analysis reports the **minimal relaxations** needed to make it feasible
+* This answers the practical request: **"Infeasible — what should we change to restore feasibility?"**
+
+Next, try it on your own model:
+
+```bash
+python -m totsu.examples.demo.transportation_elastic_quickstart --help
+```
+
+For the public API path, see [docs/TRY_YOUR_MODEL.md](docs/TRY_YOUR_MODEL.md).
+
+---
+
 ## What Totsu Is
 
 Totsu is not just a solver wrapper.
@@ -32,6 +69,18 @@ It is also about measuring.
 The Elastic Tool transforms infeasible or tightly constrained models into measurable systems.
 
 Instead of stopping at `infeasible`, it answers:
+
+### Elastic Structural Flow (Diagram)
+
+```mermaid
+flowchart LR
+    A["Original Model<br/>Hard Constraints"] --> B["Elastic Transformation"]
+    B --> C["Deviation Variables Added"]
+    B --> D["Penalty Terms Added"]
+    C --> E["Always-Feasible Model"]
+    D --> E
+    E --> F["Minimal Structural Repair"]
+```
 
 * Which constraints absorb the structural stress?
 * How much relaxation is required?
@@ -192,10 +241,26 @@ Move from single optimal solutions toward structured trade-off landscapes.
 
 # Installation
 
-Totsu can be installed via Conda for robust dependency management.
+Totsu is designed to be tried with minimal friction.
+
+### Option A: Already have Pyomo + a solver
+
+Clone and run the examples directly from source (recommended for quick evaluation).
+
+### Option B: Set up a minimal environment (Conda)
+
+If you don't have Pyomo/solvers yet, this is a minimal starting point.
 
 ```bash
-conda install -c conda-forge pyomo numpy pytest plotly dash dash-bootstrap-components
+conda install -c conda-forge pyomo glpk
+```
+
+### Development environment (optional)
+
+If you want to run tests and notebooks:
+
+```bash
+conda install -c conda-forge numpy pytest plotly dash dash-bootstrap-components jupyterlab
 pytest
 ```
 
@@ -223,16 +288,16 @@ Use Totsu when you want to **understand model structure**, not only compute a so
 
 # Examples
 
-See:
+Start here (Elastic feasibility repair):
 
+```bash
+python -m totsu.examples.demo.transportation_elastic_quickstart --solver auto
 ```
+
+Other examples live under:
+
+```text
 totsu/examples/
-```
-
-For example:
-
-```
-python -m totsu.examples.assignments.demo_4ways_assignment_elastic_windows
 ```
 
 ---
