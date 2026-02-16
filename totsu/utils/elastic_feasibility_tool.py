@@ -23,7 +23,8 @@ class ElasticDeviation:
                      e.g. "client_demand", "worker_daily", "window"
     index          : index tuple of that constraint, e.g. ("c1",) or ("w2", 3)
     original_name  : full Pyomo name, e.g. "client_demand[ c1,3 ]"
-    kind           : "slack", "excess", "slack_le", "excess_ge", etc.
+    kind           : violation-side kind label, e.g.
+                     "viol_le", "viol_ge", "viol_pos", "viol_neg"
     """
     var: Var
     penalty: float
@@ -437,7 +438,7 @@ class ElasticFeasibilityTool:
         Convert a single ConstraintData `con` into an elastic form:
 
           * Deactivate the original constraint.
-          * Add deviation variables (slack / excess).
+          * Add elastic variables (slack + violation).
           * Add one or two new equality constraints that include the deviations.
 
         Handles:
@@ -463,14 +464,14 @@ class ElasticFeasibilityTool:
             rhs = lb
             con.deactivate()
 
-            viol_pos = self._new_deviation_var(model, f"{name_base}_viol_pos")
-            viol_neg = self._new_deviation_var(model, f"{name_base}_viol_neg")
+            viol_pos = self._new_violation_var(model, f"{name_base}_viol_pos")
+            viol_neg = self._new_violation_var(model, f"{name_base}_viol_neg")
 
             deviations.append(
                 ElasticDeviation(
                     var=viol_pos,
                     penalty=penalty,
-                    kind="slack",
+                    kind="viol_pos",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -484,7 +485,7 @@ class ElasticFeasibilityTool:
                 ElasticDeviation(
                     var=viol_neg,
                     penalty=penalty,
-                    kind="excess",
+                    kind="viol_neg",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -516,13 +517,13 @@ class ElasticFeasibilityTool:
             totsu_logger.debug(f"Splitting ranged constraint '{original_name}' into GE/LE.")
 
             # GE part: body >= lb → body - slack + viol = lb
-            viol_ge = self._new_deviation_var(model, f"{name_base}_ge_viol")
-            slack_ge = self._new_deviation_var(model, f"{name_base}_ge_slack")
+            viol_ge = self._new_violation_var(model, f"{name_base}_ge_viol")
+            slack_ge = self._new_slack_var(model, f"{name_base}_ge_slack")
             deviations.append(
                 ElasticDeviation(
                     var=viol_ge,
                     penalty=penalty,
-                    kind="slack_ge",
+                    kind="viol_ge",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -541,13 +542,13 @@ class ElasticFeasibilityTool:
             deviations[-1].generated_constraint_name = generated_ge
 
             # LE part: body <= ub → body + slack - viol = ub
-            slack_le = self._new_deviation_var(model, f"{name_base}_le_slack")
-            viol_le = self._new_deviation_var(model, f"{name_base}_le_viol")
+            slack_le = self._new_slack_var(model, f"{name_base}_le_slack")
+            viol_le = self._new_violation_var(model, f"{name_base}_le_viol")
             deviations.append(
                 ElasticDeviation(
                     var=viol_le,
                     penalty=penalty,
-                    kind="excess_le",
+                    kind="viol_le",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -570,13 +571,13 @@ class ElasticFeasibilityTool:
         # Pure GE: body >= lb
         if lb is not None and ub is None:
             con.deactivate()
-            slack = self._new_deviation_var(model, f"{name_base}_slack")
-            viol = self._new_deviation_var(model, f"{name_base}_viol")
+            slack = self._new_slack_var(model, f"{name_base}_slack")
+            viol = self._new_violation_var(model, f"{name_base}_viol")
             deviations.append(
                 ElasticDeviation(
                     var=viol,
                     penalty=penalty,
-                    kind="slack",
+                    kind="viol_ge",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -604,13 +605,13 @@ class ElasticFeasibilityTool:
         # Pure LE: body <= ub
         if ub is not None and lb is None:
             con.deactivate()
-            slack = self._new_deviation_var(model, f"{name_base}_slack")
-            viol = self._new_deviation_var(model, f"{name_base}_viol")
+            slack = self._new_slack_var(model, f"{name_base}_slack")
+            viol = self._new_violation_var(model, f"{name_base}_viol")
             deviations.append(
                 ElasticDeviation(
                     var=viol,
                     penalty=penalty,
-                    kind="excess",
+                    kind="viol_le",
                     component_name=component_name,
                     index=index,
                     original_name=original_name,
@@ -639,9 +640,17 @@ class ElasticFeasibilityTool:
         totsu_logger.debug(f"Skipped constraint '{original_name}' – no bounds detected.")
         return deviations
 
-    def _new_deviation_var(self, model, base_name: str) -> Var:
+    def _new_slack_var(self, model, base_name: str) -> Var:
+        """Create a non-penalized slack-side elastic variable."""
+        return self._new_elastic_var(model, base_name)
+
+    def _new_violation_var(self, model, base_name: str) -> Var:
+        """Create a penalized violation-side elastic variable."""
+        return self._new_elastic_var(model, base_name)
+
+    def _new_elastic_var(self, model, base_name: str) -> Var:
         """
-        Create a new non-negative deviation variable with a unique name.
+        Create a new non-negative elastic variable with a unique name.
 
         IMPORTANT: names are prefixed with 'elastic_dev_' and must NOT contain
         substrings like 'slack' or 'artificial', otherwise Tableau.identify_basis_variables

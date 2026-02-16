@@ -160,7 +160,7 @@ def test_populate_violation_summary_computes_sorted_costs():
     assert result.violation_breakdown[0]["index"] == ()
     assert result.violation_breakdown[0]["sense"] == "LE"
     assert result.violation_breakdown[0]["bound"] == pytest.approx(3.0)
-    assert result.violation_breakdown[0]["kind"] == "excess"
+    assert result.violation_breakdown[0]["kind"] == "viol_le"
     assert result.violation_breakdown[1]["component_name"] == "c_ge"
     assert result.violation_breakdown[1]["cost"] == pytest.approx(2.5)
     assert result.violation_breakdown[1]["constraint_name"] == "c_ge"
@@ -244,6 +244,32 @@ def test_populate_violation_summary_with_variable_contributions():
             first = row["variable_contributions"][0]
             assert "var" in first
             assert "value" in first
+
+
+def test_deviations_include_only_violation_vars_not_slack_vars():
+    model = ConcreteModel()
+    model.x = Var(within=NonNegativeReals)
+    model.c_le = Constraint(expr=model.x <= 10)
+    model.obj = Objective(expr=0.0, sense=minimize)
+
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+    result = tool.apply(
+        model,
+        constraints=["c_le"],
+        objective_mode="violation_only",
+        clone=True,
+    )
+
+    elastic_vars = list(result.model.elastic.component_data_objects(Var, descend_into=False))
+    deviation_vars = [dev.var for dev in result.deviations]
+    elastic_var_ids = {id(v) for v in elastic_vars}
+    deviation_var_ids = {id(v) for v in deviation_vars}
+
+    assert len(elastic_vars) == 2
+    assert len(deviation_vars) == 1
+    assert deviation_var_ids.issubset(elastic_var_ids)
+    assert any(id(v) not in deviation_var_ids for v in elastic_vars)
+    assert all(dev.kind.startswith("viol_") for dev in result.deviations)
 
 
 def _build_model_with_inf_objective_coef() -> ConcreteModel:
