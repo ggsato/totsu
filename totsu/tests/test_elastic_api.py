@@ -34,7 +34,12 @@ def test_analyze_infeasibility_runs_elastic_and_returns_top_relaxations(monkeypa
     monkeypatch.setattr(elastic_api, "SolverFactory", lambda name: _FakeSolver())
 
     model = _build_infeasible_model()
-    result = elastic_api.analyze_infeasibility(model, solver="auto", max_items=1)
+    result = elastic_api.analyze_infeasibility(
+        model,
+        solver="auto",
+        max_items=1,
+        pretty_name=lambda con: f"pretty:{con.name}",
+    )
 
     assert result.solver_name == "highs"
     assert result.is_feasible_original is False
@@ -42,6 +47,8 @@ def test_analyze_infeasibility_runs_elastic_and_returns_top_relaxations(monkeypa
     assert len(result.top_relaxations) == 1
     assert "constraint_name" in result.top_relaxations[0]
     assert "cost" in result.top_relaxations[0]
+    assert "direction" in result.top_relaxations[0]
+    assert result.top_relaxations[0]["pretty_name"].startswith("pretty:")
 
     as_dict = result.to_dict()
     assert as_dict["is_feasible_original"] is False

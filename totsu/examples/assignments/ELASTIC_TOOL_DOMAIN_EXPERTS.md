@@ -383,3 +383,39 @@ Together, they produce a model that is:
 * **Robust to infeasibility**
 * **Interpretable in domain language**
 * **Safe to expose to non-expert users** (e.g., via a Totsu-powered GUI or course demo)
+
+---
+
+## 7. Naming and `pretty_name` Guidance
+
+Use consistent, domain-meaningful constraint names so diagnostics stay readable:
+
+* Prefer semantic names: `client_demand`, `worker_daily`, `forbidden_constraint`, `window`.
+* Keep index order aligned with business keys (for example `(client, day)` everywhere).
+* Avoid opaque names like `c1`, `c2`, `rule_17` for user-facing reports.
+
+When using the API, you can add optional display labels with:
+
+```python
+analyze_infeasibility(..., pretty_name=pretty_name_fn)
+```
+
+`pretty_name_fn` receives Pyomo `ConstraintData` and returns a short string:
+
+```python
+def pretty_name_fn(con):
+    comp = con.parent_component().name
+    idx = con.index()
+    if comp == "client_demand":
+        c, d = idx
+        return f"Client {c} demand on day {d}"
+    if comp == "worker_daily":
+        w, d = idx
+        return f"Worker {w} capacity on day {d}"
+    return f"{comp}{idx}"
+```
+
+Recommended output pattern:
+
+* Always keep the raw fully-qualified name for traceability.
+* Show the pretty label next to it for domain users.

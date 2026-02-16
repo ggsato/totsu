@@ -14,7 +14,7 @@ If you already have Pyomo and a solver installed, this should work out of the bo
 from __future__ import annotations
 
 import argparse
-from typing import Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 from pyomo.environ import (
     ConcreteModel,
@@ -92,17 +92,64 @@ def _extract_demand_node(constraint_name: str) -> Optional[str]:
 def _format_rows(rows: Iterable[dict], max_rows: int = 10) -> str:
     rows = list(rows)
     lines = []
-    for i, row in enumerate(rows[:max_rows]):
-        relax_amount = row["deviation"]
+    for row in rows[:max_rows]:
+        raw_name = row.get("constraint_name", "<unknown>")
+        direction = _direction_text(row)
+        name_out = raw_name
+        pretty = row.get("pretty_name")
+        if pretty:
+            name_out = f"{raw_name} ({pretty})"
         lines.append(
             "  - "
-            f"{row['constraint_name']}: "
-            f"relax by +{relax_amount:.3g} "
-            f"(deviation={relax_amount:.3g}, cost={row['cost']:.3g})"
+            f"{name_out} [index={row.get('index', ())}]: "
+            f"deviation={row['deviation']:.3g}, cost={row['cost']:.3g}, {direction}"
         )
     if len(rows) > max_rows:
         lines.append(f"  ... ({len(rows) - max_rows} more)")
     return "\n".join(lines) if lines else "  - none"
+
+
+def _direction_text(row: dict) -> str:
+    deviation = float(row.get("deviation", 0.0))
+    sense = str(row.get("sense", "")).upper()
+    if sense in {"EQ"}:
+        return f"relax by ±{deviation:.3g}"
+    if sense in {"GE", "RANGE_GE"}:
+        return f"relax lower bound by -{deviation:.3g}"
+    return f"relax upper bound by +{deviation:.3g}"
+
+
+def _transportation_pretty_name(con) -> str:
+    component = con.parent_component().name
+    idx = con.index()
+    if component == "demand_con":
+        return f"demand requirement at {idx}"
+    if component == "supply_con":
+        return f"supply capacity at {idx}"
+    return f"{component}[{idx}]"
+
+
+def _attach_pretty_names(
+    rows: List[dict],
+    deviations_by_var: Dict[str, object],
+    pretty_name: Optional[Callable] = None,
+) -> List[dict]:
+    if pretty_name is None:
+        return rows
+    enriched: List[dict] = []
+    for row in rows:
+        new_row = dict(row)
+        dev = deviations_by_var.get(row.get("deviation_var", ""))
+        con = getattr(dev, "original_constraint", None) if dev is not None else None
+        if con is not None:
+            try:
+                label = pretty_name(con)
+            except Exception:
+                label = None
+            if label:
+                new_row["pretty_name"] = str(label)
+        enriched.append(new_row)
+    return enriched
 
 
 def _demand_repair_suggestion(rows: List[dict], fallback_gap: float) -> Optional[str]:
@@ -220,7 +267,13 @@ def main() -> None:
     print(f"Total violation cost: {result.total_violation_cost:.6g}")
     print()
     print("Top relaxations (highest cost first):")
-    print(_format_rows(result.violation_breakdown[:10], max_rows=10))
+    deviations_by_var = {dev.var.name: dev for dev in result.deviations}
+    rows_for_display = _attach_pretty_names(
+        result.violation_breakdown[:10],
+        deviations_by_var=deviations_by_var,
+        pretty_name=_transportation_pretty_name,
+    )
+    print(_format_rows(rows_for_display, max_rows=10))
 
     # Add a simple human-level interpretation for this model family.
     total_supply = sum(value(elastic_model.supply[s]) for s in elastic_model.S)

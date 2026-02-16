@@ -117,3 +117,39 @@ The tool deliberately **avoids domain logic**:
 * Does *not* ensure correctness of domain semantics
 
 Those belong to domain experts and are described in the second file.
+
+---
+
+# **6. Generic Output Contract (No Domain Metadata Required)**
+
+The generic API/CLI reports each top relaxation with:
+
+* Fully-qualified Pyomo constraint name (`constraint_name`)
+* Constraint index (`index`)
+* Deviation magnitude (`deviation`)
+* Violation cost (`cost`)
+* Direction hint (`direction`)
+
+Direction is structural (derived from bounds), not domain-specific:
+
+* Upper-bound constraints (`<=`): `relax upper bound by +<deviation>`
+* Lower-bound constraints (`>=`): `relax lower bound by -<deviation>`
+* Equalities (`==`): `relax by ±<deviation>`
+
+This keeps output concise and interpretable even when only model structure is known.
+
+---
+
+# **7. What Needs Domain Metadata**
+
+To make reports business-friendly, domain metadata can be layered on top:
+
+* Constraint naming conventions in the model (`client_demand`, `worker_daily`, etc.)
+* A `pretty_name(constraint_data) -> str` mapper for human labels
+
+Example:
+
+* Raw: `demand_con[D2]`
+* Pretty: `Demand requirement at destination D2`
+
+The elastic mechanics remain generic; only label rendering uses domain metadata.

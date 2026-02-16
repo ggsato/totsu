@@ -1,6 +1,10 @@
 import pytest
 
-from totsu.utils.solver_utils import NO_SOLVER_FOUND_MESSAGE, resolve_solver_name
+from totsu.utils.solver_utils import (
+    NO_SOLVER_FOUND_MESSAGE,
+    resolve_solver_name,
+    select_solver_auto,
+)
 
 
 class _FakeSolver:
@@ -35,3 +39,33 @@ def test_resolve_solver_name_auto_raises_when_none_available():
 
 def test_resolve_solver_name_non_auto_passthrough():
     assert resolve_solver_name("glpk") == "glpk"
+
+
+def test_select_solver_auto_skips_factory_exceptions():
+    calls = []
+
+    def fake_factory(name):
+        calls.append(name)
+        if name == "highs":
+            raise RuntimeError("plugin missing")
+        if name == "cbc":
+            return _FakeSolver(True)
+        return _FakeSolver(False)
+
+    selected = select_solver_auto(candidates=("highs", "cbc", "glpk"), solver_factory=fake_factory)
+    assert selected == "cbc"
+    assert calls == ["highs", "cbc"]
+
+
+def test_select_solver_auto_suppresses_probe_output(capsys):
+    def fake_factory(name):
+        print(f"noise from {name}")
+        if name == "highs":
+            raise RuntimeError("missing")
+        return _FakeSolver(name == "cbc")
+
+    selected = select_solver_auto(candidates=("highs", "cbc"), solver_factory=fake_factory)
+    assert selected == "cbc"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

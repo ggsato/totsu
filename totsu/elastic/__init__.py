@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from pyomo.opt import SolverFactory, TerminationCondition
 
@@ -16,6 +16,41 @@ def _is_feasible_termination(termination_condition) -> bool:
         TerminationCondition.locallyOptimal,
         TerminationCondition.globallyOptimal,
     }
+
+
+def _format_direction(row: Dict) -> str:
+    deviation = float(row.get("deviation", 0.0))
+    sense = str(row.get("sense", "")).upper()
+    if sense in {"EQ"}:
+        return f"relax by ±{deviation:.6g}"
+    if sense in {"GE", "RANGE_GE"}:
+        return f"relax lower bound by -{deviation:.6g}"
+    return f"relax upper bound by +{deviation:.6g}"
+
+
+def _decorate_top_relaxations(
+    elastic_result,
+    max_items: int,
+    pretty_name: Optional[Callable] = None,
+) -> List[Dict]:
+    deviations_by_var = {dev.var.name: dev for dev in elastic_result.deviations}
+    rows: List[Dict] = []
+    for raw_row in elastic_result.violation_breakdown[:max_items]:
+        row = dict(raw_row)
+        row["direction"] = _format_direction(row)
+
+        if pretty_name is not None:
+            dev = deviations_by_var.get(row.get("deviation_var", ""))
+            con = getattr(dev, "original_constraint", None) if dev is not None else None
+            if con is not None:
+                try:
+                    pretty = pretty_name(con)
+                except Exception:
+                    pretty = None
+                if pretty:
+                    row["pretty_name"] = str(pretty)
+        rows.append(row)
+    return rows
 
 
 @dataclass
@@ -36,9 +71,13 @@ class AnalysisResult:
             return
         print("Top relaxations:")
         for row in self.top_relaxations:
+            raw_name = row.get("constraint_name", "<unknown>")
+            pretty = row.get("pretty_name")
+            name_out = f"{raw_name} ({pretty})" if pretty else raw_name
             print(
-                f"  - {row['constraint_name']}: deviation={row['deviation']:.6g}, "
-                f"penalty={row['penalty']:.6g}, cost={row['cost']:.6g}"
+                f"  - {name_out} [index={row.get('index', ())}]: "
+                f"deviation={row['deviation']:.6g}, cost={row['cost']:.6g}, "
+                f"{row.get('direction', _format_direction(row))}"
             )
 
     def to_dict(self) -> Dict:
@@ -57,6 +96,7 @@ def analyze_infeasibility(
     tee: bool = False,
     violation_only: bool = True,
     max_items: int = 10,
+    pretty_name: Optional[Callable] = None,
 ) -> AnalysisResult:
     solver_name = resolve_solver_name(solver, solver_factory=SolverFactory)
     solver_instance = SolverFactory(solver_name)
@@ -91,7 +131,11 @@ def analyze_infeasibility(
         solver_name=solver_name,
         is_feasible_original=False,
         is_feasible_elastic=is_feasible_elastic,
-        top_relaxations=elastic_result.violation_breakdown[:max_items],
+        top_relaxations=_decorate_top_relaxations(
+            elastic_result,
+            max_items=max_items,
+            pretty_name=pretty_name,
+        ),
     )
 
 
