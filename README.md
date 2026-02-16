@@ -42,6 +42,14 @@ Next, try it on your own model:
 python -m totsu.examples.demo.transportation_elastic_quickstart --help
 ```
 
+> **Optional / Advanced — Gotcha: Penalty too small can make violations "cheap"**
+> - What happens: if penalty is too small, the model may prefer violating constraints (e.g., demand effectively unmet / pushed to zero) instead of operating normally.
+> - Why: the objective trades off business cost and violation penalty; a small penalty makes violation a cheap choice.
+> - Fix:
+>   - set penalties large enough for your model scale,
+>   - start with `violation_only` to inspect violation amounts,
+>   - then move to `original_plus_violation` for cost-aware repair.
+
 For the public API path, see [docs/TRY_YOUR_MODEL.md](docs/TRY_YOUR_MODEL.md).
 
 ---

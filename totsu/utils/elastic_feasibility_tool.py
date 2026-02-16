@@ -652,9 +652,12 @@ class ElasticFeasibilityTool:
         """
         Create a new non-negative elastic variable with a unique name.
 
-        IMPORTANT: names are prefixed with 'elastic_dev_' and must NOT contain
-        substrings like 'slack' or 'artificial', otherwise Tableau.identify_basis_variables
-        will mistakenly treat them as initial basic variables.
+        IMPORTANT: generated names are prefixed with ``elastic_dev_`` and
+        ``base_name`` is sanitized (e.g., ``slack``/``artificial`` -> ``dev``)
+        so name-based basis heuristics (like Tableau checks) do not misclassify
+        elastic vars; violation-vs-slack semantics are tracked by caller
+        (`_new_violation_var`/`_new_slack_var`) and only violation vars are
+        recorded in ``result.deviations``.
         """
         safe_base_name = re.sub(r"slack", "dev", base_name, flags=re.IGNORECASE)
         safe_base_name = re.sub(r"artificial", "dev", safe_base_name, flags=re.IGNORECASE)
