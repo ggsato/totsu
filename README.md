@@ -16,7 +16,7 @@ Requires Pyomo + any LP/MILP solver available to Pyomo (HiGHS, CBC, or GLPK).
 Check solver availability:
 
 ```bash
-python -c "from pyomo.opt import SolverFactory; print('highs', SolverFactory('highs').available(False)); print('cbc', SolverFactory('cbc').available(False)); print('glpk', SolverFactory('glpk').available(False))"
+python -c "from pyomo.environ import SolverFactory; print('highs', SolverFactory('highs').available(False)); print('cbc', SolverFactory('cbc').available(False)); print('glpk', SolverFactory('glpk').available(False))"
 ```
 
 If you already have a working **Pyomo + solver** environment, you can run Totsu from source without extra setup.

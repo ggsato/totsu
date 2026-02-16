@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
-from pyomo.opt import SolverFactory, TerminationCondition
+from pyomo.environ import SolverFactory, TerminationCondition
 
 from totsu.utils.elastic_feasibility_tool import ElasticFeasibilityTool
 from totsu.utils.solver_utils import resolve_solver_name

@@ -1,5 +1,5 @@
 from pyomo.opt import SolverResults, TerminationCondition, SolverStatus
-from pyomo.opt import SolverFactory
+from pyomo.environ import SolverFactory
 from .super_simplex_solver import SuperSimplexSolver, InfeasibleProblemError, UnboundedProblemError, OptimizationError
 from ..utils.model_processor import ModelProcessor
 from ..utils.logger import totsu_logger

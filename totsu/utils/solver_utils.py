@@ -5,7 +5,7 @@ import logging
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from typing import Callable, Iterable, Optional
 
-from pyomo.opt import SolverFactory
+from pyomo.environ import SolverFactory
 
 AUTO_SOLVER_CANDIDATES = ("highs", "cbc", "glpk")
 NO_SOLVER_FOUND_MESSAGE = (
