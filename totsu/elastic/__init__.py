@@ -95,6 +95,7 @@ def analyze_infeasibility(
     *,
     tee: bool = False,
     violation_only: bool = True,
+    default_penalty: float = 1.0,
     max_items: int = 10,
     pretty_name: Optional[Callable] = None,
 ) -> AnalysisResult:
@@ -116,7 +117,7 @@ def analyze_infeasibility(
         )
 
     objective_mode = "violation_only" if violation_only else "original_plus_violation"
-    tool = ElasticFeasibilityTool(default_penalty=1.0)
+    tool = ElasticFeasibilityTool(default_penalty=float(default_penalty))
     elastic_result = tool.apply(
         model,
         objective_mode=objective_mode,

@@ -26,12 +26,16 @@ def pretty_name(con):
 result = analyze_infeasibility(
     model,
     solver="auto",
-    violation_only=True,
+    violation_only=False,
+    default_penalty=1000.0,  # important for original_plus_violation
     max_items=10,
     pretty_name=pretty_name,  # optional
 )
 result.print_summary()
 ```
+
+`violation_only=False` (original + violation) combines business cost and relaxation cost.
+Set `default_penalty` large enough so violations are not cheaper than normal operation.
 
 ## What The Output Means
 

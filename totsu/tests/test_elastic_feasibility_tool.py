@@ -1,5 +1,19 @@
+import warnings
+
 import pytest
-from pyomo.environ import Constraint, ConstraintList, ConcreteModel, NonNegativeReals, Objective, Param, Set, Var, minimize
+from pyomo.environ import (
+    Constraint,
+    ConstraintList,
+    ConcreteModel,
+    NonNegativeReals,
+    Objective,
+    Param,
+    Set,
+    Var,
+    maximize,
+    minimize,
+    value,
+)
 from pyomo.repn import generate_standard_repn
 
 from totsu.core.totsu_simplex_solver import TotsuSimplexSolver
@@ -71,7 +85,7 @@ def test_generated_components_are_under_elastic_block():
     assert root_elastic_dev_vars == []
 
     elastic_block_vars = list(result.model.elastic.component_data_objects(Var, descend_into=False))
-    assert len(elastic_block_vars) == 2
+    assert len(elastic_block_vars) == 4
     assert all(var.name.startswith("elastic.elastic_dev_") for var in elastic_block_vars)
 
     elastic_constraints = list(result.model.elastic.component_data_objects(Constraint, descend_into=False))
@@ -326,3 +340,115 @@ def test_objective_value_breakdown_original_plus_violation_after_solve():
         abs=1e-8,
     )
     assert result.active_objective_value == pytest.approx(result.combined_objective_value, abs=1e-8)
+
+
+def test_le_constraint_uses_slack_and_violation_without_direction_flip():
+    model = ConcreteModel()
+    model.x = Var(within=NonNegativeReals)
+    model.c_le = Constraint(expr=model.x <= 10)
+    model.obj = Objective(expr=0.0, sense=minimize)
+
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+    result = tool.apply(
+        model,
+        constraints=["c_le"],
+        objective_mode="violation_only",
+        clone=False,
+    )
+
+    elastic_vars = list(result.model.elastic.component_data_objects(Var, descend_into=False))
+    viol_var = result.deviations[0].var
+    slack_var = next(v for v in elastic_vars if v is not viol_var)
+    solver = TotsuSimplexSolver()
+
+    model.x.fix(0.0)
+    solver.solve(model)
+    assert value(slack_var) == pytest.approx(10.0, abs=1e-8)
+    assert value(viol_var) == pytest.approx(0.0, abs=1e-8)
+
+    model.x.fix(12.0)
+    solver.solve(model)
+    assert value(slack_var) == pytest.approx(0.0, abs=1e-8)
+    assert value(viol_var) == pytest.approx(2.0, abs=1e-8)
+
+
+def test_ge_constraint_uses_slack_and_violation_without_direction_flip():
+    model = ConcreteModel()
+    model.x = Var(within=NonNegativeReals)
+    model.c_ge = Constraint(expr=model.x >= 10)
+    model.obj = Objective(expr=0.0, sense=minimize)
+
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+    result = tool.apply(
+        model,
+        constraints=["c_ge"],
+        objective_mode="violation_only",
+        clone=False,
+    )
+
+    elastic_vars = list(result.model.elastic.component_data_objects(Var, descend_into=False))
+    viol_var = result.deviations[0].var
+    slack_var = next(v for v in elastic_vars if v is not viol_var)
+    solver = TotsuSimplexSolver()
+
+    model.x.fix(12.0)
+    solver.solve(model)
+    assert value(slack_var) == pytest.approx(2.0, abs=1e-8)
+    assert value(viol_var) == pytest.approx(0.0, abs=1e-8)
+
+    model.x.fix(8.0)
+    solver.solve(model)
+    assert value(slack_var) == pytest.approx(0.0, abs=1e-8)
+    assert value(viol_var) == pytest.approx(2.0, abs=1e-8)
+
+
+def test_original_plus_violation_tracks_solver_and_natural_objective_for_maximize():
+    model = ConcreteModel()
+    model.x = Var(bounds=(0, 5))
+    model.force = Constraint(expr=model.x >= 3)
+    model.obj = Objective(expr=model.x, sense=maximize)
+
+    tool = ElasticFeasibilityTool(default_penalty=10.0)
+    result = tool.apply(
+        model,
+        constraints=["force"],
+        objective_mode="original_plus_violation",
+        original_objective_weight=1.0,
+        clone=False,
+    )
+
+    elastic_vars = list(result.model.elastic.component_data_objects(Var, descend_into=False))
+    viol_var = result.deviations[0].var
+    slack_var = next(v for v in elastic_vars if v is not viol_var)
+    model.x.set_value(5.0)
+    slack_var.set_value(2.0)
+    viol_var.set_value(0.0)
+    tool.populate_violation_summary(result, tol=1e-8)
+
+    assert result.solver_objective_expr is not None
+    assert result.natural_objective_expr is not None
+    assert result.solver_objective_value is not None
+    assert result.natural_objective_value is not None
+    assert result.violation_objective_value == pytest.approx(0.0, abs=1e-8)
+    assert result.original_objective_value == pytest.approx(5.0, abs=1e-8)
+    assert result.solver_objective_value == pytest.approx(-5.0, abs=1e-8)
+    assert result.natural_objective_value == pytest.approx(5.0, abs=1e-8)
+    # Backward-compatible aliases
+    assert result.active_objective_value == pytest.approx(result.solver_objective_value, abs=1e-8)
+    assert result.combined_objective_value == pytest.approx(result.natural_objective_value, abs=1e-8)
+
+
+def test_no_constraintdata_deprecation_warning_on_apply():
+    model = _build_infeasible_model()
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        tool.apply(
+            model,
+            constraints=["c_ge", "c_le"],
+            objective_mode="violation_only",
+            clone=True,
+        )
+
+    assert not any("_ConstraintData" in str(w.message) for w in captured)

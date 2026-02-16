@@ -6,10 +6,7 @@ import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from pyomo.environ import Block, Constraint, Objective, Var, NonNegativeReals, maximize, minimize, value
-try:
-    from pyomo.core.base.constraint import ConstraintData
-except ImportError:  # pragma: no cover - compatibility with older Pyomo
-    from pyomo.core.base.constraint import _ConstraintData as ConstraintData
+from pyomo.core.base.constraint import ConstraintData
 from pyomo.core.expr.visitor import identify_variables
 from pyomo.repn import generate_standard_repn
 
@@ -43,10 +40,16 @@ class ElasticDeviation:
 @dataclass
 class ElasticResult:
     model: Any
+    # Backward-compatible: this list contains penalized deviation terms
+    # (i.e., violation variables), not free slack variables.
     deviations: List[ElasticDeviation] = field(default_factory=list)
     total_violation_cost: float = 0.0
     violation_breakdown: List[dict] = field(default_factory=list)
     objective_mode: Optional[str] = None
+    solver_objective_expr: Any = field(default=None, repr=False, compare=False)
+    solver_objective_value: Optional[float] = None
+    natural_objective_expr: Any = field(default=None, repr=False, compare=False)
+    natural_objective_value: Optional[float] = None
     active_objective_value: Optional[float] = None
     original_objective_value: Optional[float] = None
     violation_objective_value: Optional[float] = None
@@ -54,6 +57,8 @@ class ElasticResult:
     _original_objective_expr: Any = field(default=None, repr=False, compare=False)
     _violation_objective_expr: Any = field(default=None, repr=False, compare=False)
     _combined_objective_expr: Any = field(default=None, repr=False, compare=False)
+    _solver_objective_expr: Any = field(default=None, repr=False, compare=False)
+    _natural_objective_expr: Any = field(default=None, repr=False, compare=False)
 
 
 class ElasticFeasibilityTool:
@@ -63,11 +68,11 @@ class ElasticFeasibilityTool:
     * Works purely on constraints, bounds, and variables (no domain semantics).
     * For each selected constraint:
         - Detect <=, >=, ==, or ranged (lb <= body <= ub).
-        - Add non-negative deviation variables (slack/excess).
+        - Add non-negative elastic variables (slack + violation).
         - Replace with an equality including deviations:
-              body <= ub  →  body - e = ub
-              body >= lb  →  body + s = lb
-              body == rhs →  body + s - e = rhs
+              body <= ub  →  body + slack - viol = ub
+              body >= lb  →  body - slack + viol = lb
+              body == rhs →  body + viol_pos - viol_neg = rhs
               lb <= body <= ub → split into GE & LE pieces.
     * Applies objective mode selected in `apply()`.
     """
@@ -167,6 +172,10 @@ class ElasticFeasibilityTool:
             _original_objective_expr=objective_terms.get("original_expr"),
             _violation_objective_expr=objective_terms.get("violation_expr"),
             _combined_objective_expr=objective_terms.get("combined_expr"),
+            _solver_objective_expr=objective_terms.get("solver_expr"),
+            _natural_objective_expr=objective_terms.get("natural_expr"),
+            solver_objective_expr=objective_terms.get("solver_expr"),
+            natural_objective_expr=objective_terms.get("natural_expr"),
         )
         # Initial values before solve (all deviation vars are typically unset).
         self.populate_violation_summary(result, tol=self.tol)
@@ -269,6 +278,14 @@ class ElasticFeasibilityTool:
         result.active_objective_value = (
             ElasticFeasibilityTool._safe_eval_float(active_obj.expr) if active_obj is not None else None
         )
+        result.solver_objective_value = ElasticFeasibilityTool._safe_eval_float(
+            result._solver_objective_expr
+        )
+        if result.solver_objective_value is None:
+            result.solver_objective_value = result.active_objective_value
+        result.natural_objective_value = ElasticFeasibilityTool._safe_eval_float(
+            result._natural_objective_expr
+        )
         result.original_objective_value = ElasticFeasibilityTool._safe_eval_float(
             result._original_objective_expr
         )
@@ -278,6 +295,11 @@ class ElasticFeasibilityTool:
         result.combined_objective_value = ElasticFeasibilityTool._safe_eval_float(
             result._combined_objective_expr
         )
+        # Backward-compatible aliases:
+        if result.combined_objective_value is None:
+            result.combined_objective_value = result.natural_objective_value
+        if result.active_objective_value is None:
+            result.active_objective_value = result.solver_objective_value
         return result
 
     @staticmethod
@@ -441,12 +463,12 @@ class ElasticFeasibilityTool:
             rhs = lb
             con.deactivate()
 
-            s = self._new_deviation_var(model, f"{name_base}_posdev")
-            e = self._new_deviation_var(model, f"{name_base}_negdev")
+            viol_pos = self._new_deviation_var(model, f"{name_base}_viol_pos")
+            viol_neg = self._new_deviation_var(model, f"{name_base}_viol_neg")
 
             deviations.append(
                 ElasticDeviation(
-                    var=s,
+                    var=viol_pos,
                     penalty=penalty,
                     kind="slack",
                     component_name=component_name,
@@ -460,7 +482,7 @@ class ElasticFeasibilityTool:
             )
             deviations.append(
                 ElasticDeviation(
-                    var=e,
+                    var=viol_neg,
                     penalty=penalty,
                     kind="excess",
                     component_name=component_name,
@@ -477,13 +499,14 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "eq",
-                body + s - e == rhs,
+                body + viol_pos - viol_neg == rhs,
             )
             deviations[-1].generated_constraint_name = generated_name
             deviations[-2].generated_constraint_name = generated_name
 
             totsu_logger.debug(
-                f"Elasticized equality '{original_name}' with slack {s.name} and excess {e.name}."
+                f"Elasticized equality '{original_name}' with violation vars "
+                f"{viol_pos.name}, {viol_neg.name}."
             )
             return deviations
 
@@ -492,11 +515,12 @@ class ElasticFeasibilityTool:
             con.deactivate()
             totsu_logger.debug(f"Splitting ranged constraint '{original_name}' into GE/LE.")
 
-            # GE part: body >= lb → body + s_ge = lb
-            s_ge = self._new_deviation_var(model, f"{name_base}_ge_posdev")
+            # GE part: body >= lb → body - slack + viol = lb
+            viol_ge = self._new_deviation_var(model, f"{name_base}_ge_viol")
+            slack_ge = self._new_deviation_var(model, f"{name_base}_ge_slack")
             deviations.append(
                 ElasticDeviation(
-                    var=s_ge,
+                    var=viol_ge,
                     penalty=penalty,
                     kind="slack_ge",
                     component_name=component_name,
@@ -512,15 +536,16 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "range_ge",
-                body + s_ge == lb,
+                body - slack_ge + viol_ge == lb,
             )
             deviations[-1].generated_constraint_name = generated_ge
 
-            # LE part: body <= ub → body - e_le = ub
-            e_le = self._new_deviation_var(model, f"{name_base}_le_negdev")
+            # LE part: body <= ub → body + slack - viol = ub
+            slack_le = self._new_deviation_var(model, f"{name_base}_le_slack")
+            viol_le = self._new_deviation_var(model, f"{name_base}_le_viol")
             deviations.append(
                 ElasticDeviation(
-                    var=e_le,
+                    var=viol_le,
                     penalty=penalty,
                     kind="excess_le",
                     component_name=component_name,
@@ -536,7 +561,7 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "range_le",
-                body - e_le == ub,
+                body + slack_le - viol_le == ub,
             )
             deviations[-1].generated_constraint_name = generated_le
 
@@ -545,10 +570,11 @@ class ElasticFeasibilityTool:
         # Pure GE: body >= lb
         if lb is not None and ub is None:
             con.deactivate()
-            s = self._new_deviation_var(model, f"{name_base}_posdev")
+            slack = self._new_deviation_var(model, f"{name_base}_slack")
+            viol = self._new_deviation_var(model, f"{name_base}_viol")
             deviations.append(
                 ElasticDeviation(
-                    var=s,
+                    var=viol,
                     penalty=penalty,
                     kind="slack",
                     component_name=component_name,
@@ -565,22 +591,24 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "ge",
-                body + s == lb,
+                body - slack + viol == lb,
             )
             deviations[-1].generated_constraint_name = generated_name
 
             totsu_logger.debug(
-                f"Elasticized GE constraint '{original_name}' with slack {s.name}."
+                f"Elasticized GE constraint '{original_name}' with slack {slack.name} "
+                f"and violation {viol.name}."
             )
             return deviations
 
         # Pure LE: body <= ub
         if ub is not None and lb is None:
             con.deactivate()
-            e = self._new_deviation_var(model, f"{name_base}_negdev")
+            slack = self._new_deviation_var(model, f"{name_base}_slack")
+            viol = self._new_deviation_var(model, f"{name_base}_viol")
             deviations.append(
                 ElasticDeviation(
-                    var=e,
+                    var=viol,
                     penalty=penalty,
                     kind="excess",
                     component_name=component_name,
@@ -597,12 +625,13 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "le",
-                body - e == ub,
+                body + slack - viol == ub,
             )
             deviations[-1].generated_constraint_name = generated_name
 
             totsu_logger.debug(
-                f"Elasticized LE constraint '{original_name}' with excess {e.name}."
+                f"Elasticized LE constraint '{original_name}' with slack {slack.name} "
+                f"and violation {viol.name}."
             )
             return deviations
 
@@ -693,6 +722,8 @@ class ElasticFeasibilityTool:
                 "original_expr": original_expr,
                 "violation_expr": None,
                 "combined_expr": original_expr,
+                "solver_expr": original_expr,
+                "natural_expr": original_expr,
             }
 
         if objective_mode not in ("violation_only", "original_plus_violation"):
@@ -711,6 +742,8 @@ class ElasticFeasibilityTool:
                 "original_expr": original_expr,
                 "violation_expr": None,
                 "combined_expr": original_expr,
+                "solver_expr": original_expr,
+                "natural_expr": original_expr,
             }
 
         violation_expr = sum(dev.penalty * dev.var for dev in deviations)
@@ -719,38 +752,38 @@ class ElasticFeasibilityTool:
             active_obj.deactivate()
 
         if objective_mode == "violation_only":
-            objective_expr = violation_expr
+            solver_expr = violation_expr
+            natural_expr = violation_expr
         else:
             if active_obj is None:
-                objective_expr = violation_expr
+                solver_expr = violation_expr
+                natural_expr = violation_expr
             else:
                 self._validate_objective_is_finite(
                     obj_expr=active_obj.expr,
                     objective_name=getattr(active_obj, "name", "<unknown>"),
                     objective_mode=objective_mode,
                 )
-            if active_obj is None:
-                objective_expr = violation_expr
-            elif active_obj.sense == maximize:
-                objective_expr = -original_objective_weight * active_obj.expr + violation_expr
-            else:
-                objective_expr = original_objective_weight * active_obj.expr + violation_expr
+                if active_obj.sense == maximize:
+                    solver_expr = -original_objective_weight * active_obj.expr + violation_expr
+                    natural_expr = original_objective_weight * active_obj.expr + violation_expr
+                else:
+                    solver_expr = original_objective_weight * active_obj.expr + violation_expr
+                    natural_expr = solver_expr
 
-        combined_expr = (
-            (original_expr + violation_expr)
-            if (objective_mode == "original_plus_violation" and original_expr is not None)
-            else violation_expr
-        )
+        combined_expr = natural_expr
 
         if hasattr(elastic_block, "elastic_obj"):
             elastic_block.del_component(elastic_block.elastic_obj)
 
-        elastic_block.elastic_obj = Objective(expr=objective_expr, sense=minimize)
+        elastic_block.elastic_obj = Objective(expr=solver_expr, sense=minimize)
         totsu_logger.debug(f"Applied elastic objective mode '{objective_mode}'.")
         return {
             "original_expr": original_expr,
             "violation_expr": violation_expr,
             "combined_expr": combined_expr,
+            "solver_expr": solver_expr,
+            "natural_expr": natural_expr,
         }
 
     @staticmethod

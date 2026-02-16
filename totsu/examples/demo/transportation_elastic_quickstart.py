@@ -262,6 +262,10 @@ def main() -> None:
     print("=== Elastic analysis ===")
     print(f"Termination condition: {elastic_term}")
     print(f"Objective mode: {result.objective_mode}")
+    if result.solver_objective_value is not None:
+        print(f"Solver objective (minimized): {result.solver_objective_value:.6g}")
+    if result.natural_objective_value is not None:
+        print(f"Natural objective scale: {result.natural_objective_value:.6g}")
     if result.original_objective_value is not None:
         print(f"Original objective value (transport cost): {result.original_objective_value:.6g}")
     print(f"Total violation cost: {result.total_violation_cost:.6g}")

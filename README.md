@@ -137,6 +137,10 @@ Relax 73 units at S3
 Relax 2 units at S2
 ```
 
+Note: in `original_plus_violation` mode, set violation penalties high enough
+relative to normal objective coefficients. If penalties are too small, the model
+can prefer violating demand/supply instead of performing real operations.
+
 Interpretation:
 
 The model requires 75 additional units of supply.  

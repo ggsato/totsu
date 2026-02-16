@@ -53,3 +53,18 @@ def test_analyze_infeasibility_runs_elastic_and_returns_top_relaxations(monkeypa
     as_dict = result.to_dict()
     assert as_dict["is_feasible_original"] is False
     assert as_dict["is_feasible_elastic"] is True
+
+
+def test_analyze_infeasibility_respects_default_penalty(monkeypatch):
+    monkeypatch.setattr(elastic_api, "SolverFactory", lambda name: _FakeSolver())
+
+    model = _build_infeasible_model()
+    result = elastic_api.analyze_infeasibility(
+        model,
+        solver="auto",
+        default_penalty=7.0,
+        max_items=1,
+    )
+
+    assert len(result.top_relaxations) == 1
+    assert result.top_relaxations[0]["cost"] == 7.0

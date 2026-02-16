@@ -34,7 +34,14 @@ def main():
     analysis_result.print_summary()
 
     # 4) Analyze the infeasibility(with the original objective included in the elastic formulation)
-    analysis_result = analyze_infeasibility(model, violation_only=False, pretty_name=pretty_name)
+    # In original_plus_violation mode, use a large violation penalty so
+    # "serve demand by shipping" dominates "drop demand with cheap violations".
+    analysis_result = analyze_infeasibility(
+        model,
+        violation_only=False,
+        default_penalty=1000.0,
+        pretty_name=pretty_name,
+    )
 
     # 5) Print the results(with the original objective included in the elastic formulation)
     analysis_result.print_summary()
