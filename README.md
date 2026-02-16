@@ -11,15 +11,23 @@ It provides tools to measure structural tension, visualize combinatorial behavio
 
 ## Try it in 3 minutes (Elastic feasibility repair)
 
-If you already have a working **Pyomo + solver** environment (e.g., GLPK or CBC), you can run Totsu from source without extra setup.
+Requires Pyomo + any LP/MILP solver available to Pyomo (HiGHS, CBC, or GLPK).
+
+Check solver availability:
+
+```bash
+python -c "from pyomo.opt import SolverFactory; print('highs', SolverFactory('highs').available(False)); print('cbc', SolverFactory('cbc').available(False)); print('glpk', SolverFactory('glpk').available(False))"
+```
+
+If you already have a working **Pyomo + solver** environment, you can run Totsu from source without extra setup.
 
 ```bash
 # Clone this repository
 git clone git@github.com:ggsato/totsu.git
 cd totsu
 
-# Choose a solver you already have (default: glpk)
-python -m totsu.examples.demo.transportation_elastic_quickstart --solver glpk
+# Use auto solver detection (highs -> cbc -> glpk)
+python -m totsu.examples.demo.transportation_elastic_quickstart --solver auto
 ```
 
 What you should see:
@@ -33,6 +41,8 @@ Next, try it on your own model:
 ```bash
 python -m totsu.examples.demo.transportation_elastic_quickstart --help
 ```
+
+For the public API path, see `docs/TRY_YOUR_MODEL.md`.
 
 ---
 
@@ -269,7 +279,7 @@ Use Totsu when you want to **understand model structure**, not only compute a so
 Start here (Elastic feasibility repair):
 
 ```bash
-python -m totsu.examples.demo.transportation_elastic_quickstart --solver glpk
+python -m totsu.examples.demo.transportation_elastic_quickstart --solver auto
 ```
 
 Other examples live under:
