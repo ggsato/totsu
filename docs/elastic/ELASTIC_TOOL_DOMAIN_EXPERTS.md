@@ -253,7 +253,7 @@ def apply_elasticity(m, penalties):
 
 This is exactly the point where the **generic elastic tool** and **domain expert** meet:
 
-* The tool can systematically add these deviations and objective terms.
+* The tool can systematically add these violation variables and objective terms.
 * The expert chooses *which constraints* to elasticize and *what weights* to use.
 
 ---

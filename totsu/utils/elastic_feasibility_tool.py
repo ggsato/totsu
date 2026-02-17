@@ -41,8 +41,8 @@ class ElasticDeviation:
 @dataclass
 class ElasticResult:
     model: Any
-    # Backward-compatible: this list contains penalized deviation terms
-    # (i.e., violation variables), not free slack variables.
+    # Backward-compatible: this list contains penalized violation terms
+    # (i.e., violation variables), not free aux variables.
     deviations: List[ElasticDeviation] = field(default_factory=list)
     total_violation_cost: float = 0.0
     violation_breakdown: List[dict] = field(default_factory=list)
@@ -69,10 +69,10 @@ class ElasticFeasibilityTool:
     * Works purely on constraints, bounds, and variables (no domain semantics).
     * For each selected constraint:
         - Detect <=, >=, ==, or ranged (lb <= body <= ub).
-        - Add non-negative elastic variables (slack + violation).
+        - Add non-negative elastic variables (aux + violation).
         - Replace with an equality including deviations:
-              body <= ub  →  body + slack - viol = ub
-              body >= lb  →  body - slack + viol = lb
+              body <= ub  →  body + aux - viol = ub
+              body >= lb  →  body - aux + viol = lb
               body == rhs →  body + viol_pos - viol_neg = rhs
               lb <= body <= ub → split into GE & LE pieces.
     * Applies objective mode selected in `apply()`.
@@ -178,7 +178,7 @@ class ElasticFeasibilityTool:
             solver_objective_expr=objective_terms.get("solver_expr"),
             natural_objective_expr=objective_terms.get("natural_expr"),
         )
-        # Initial values before solve (all deviation vars are typically unset).
+        # Initial values before solve (all violation vars are typically unset).
         self.populate_violation_summary(result, tol=self.tol)
         return result
 
@@ -191,7 +191,7 @@ class ElasticFeasibilityTool:
     ) -> ElasticResult:
         """
         Populate `result.total_violation_cost` and `result.violation_breakdown`
-        from current deviation variable values.
+        from current violation variable values.
 
         Call this after solve to get the final structural diagnosis numbers.
         """
@@ -205,7 +205,7 @@ class ElasticFeasibilityTool:
             cost = dev.penalty * dev_val
             row = {
                 "component_name": dev.component_name,
-                "deviation": dev_val,
+                "violation": dev_val,
                 "penalty": dev.penalty,
                 "cost": cost,
                 "constraint_name": dev.original_name,
@@ -213,11 +213,10 @@ class ElasticFeasibilityTool:
                 "sense": dev.sense,
                 "bound": float(dev.bound),
                 "kind": dev.kind,
-                "deviation_var": dev.var.name,
+                "violation_var": dev.var.name,
                 "generated_constraint_name": dev.generated_constraint_name,
             }
             if include_variable_contributions:
-                row["violation_amount"] = dev_val
                 row["body_value"] = ElasticFeasibilityTool._safe_value_of_constraint_body(
                     dev.original_constraint
                 )
@@ -229,12 +228,12 @@ class ElasticFeasibilityTool:
             breakdown.append(row)
 
         # Stable and deterministic ordering for reporting:
-        # highest cost first, then name, deviation, penalty.
+        # highest cost first, then name, violation amount, penalty.
         breakdown.sort(
             key=lambda row: (
                 -row["cost"],
                 str(row["component_name"]),
-                -row["deviation"],
+                -row["violation"],
                 -row["penalty"],
                 str(row["constraint_name"]),
             )
@@ -438,7 +437,7 @@ class ElasticFeasibilityTool:
         Convert a single ConstraintData `con` into an elastic form:
 
           * Deactivate the original constraint.
-          * Add elastic variables (slack + violation).
+          * Add elastic variables (aux + violation).
           * Add one or two new equality constraints that include the deviations.
 
         Handles:
@@ -516,9 +515,9 @@ class ElasticFeasibilityTool:
             con.deactivate()
             totsu_logger.debug(f"Splitting ranged constraint '{original_name}' into GE/LE.")
 
-            # GE part: body >= lb → body - slack + viol = lb
+            # GE part: body >= lb → body - aux + viol = lb
             viol_ge = self._new_violation_var(model, f"{name_base}_ge_viol")
-            slack_ge = self._new_slack_var(model, f"{name_base}_ge_slack")
+            aux_ge = self._new_aux_var(model, f"{name_base}_ge_aux")
             deviations.append(
                 ElasticDeviation(
                     var=viol_ge,
@@ -537,12 +536,12 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "range_ge",
-                body - slack_ge + viol_ge == lb,
+                body - aux_ge + viol_ge == lb,
             )
             deviations[-1].generated_constraint_name = generated_ge
 
-            # LE part: body <= ub → body + slack - viol = ub
-            slack_le = self._new_slack_var(model, f"{name_base}_le_slack")
+            # LE part: body <= ub → body + aux - viol = ub
+            aux_le = self._new_aux_var(model, f"{name_base}_le_aux")
             viol_le = self._new_violation_var(model, f"{name_base}_le_viol")
             deviations.append(
                 ElasticDeviation(
@@ -562,7 +561,7 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "range_le",
-                body + slack_le - viol_le == ub,
+                body + aux_le - viol_le == ub,
             )
             deviations[-1].generated_constraint_name = generated_le
 
@@ -571,7 +570,7 @@ class ElasticFeasibilityTool:
         # Pure GE: body >= lb
         if lb is not None and ub is None:
             con.deactivate()
-            slack = self._new_slack_var(model, f"{name_base}_slack")
+            aux = self._new_aux_var(model, f"{name_base}_aux")
             viol = self._new_violation_var(model, f"{name_base}_viol")
             deviations.append(
                 ElasticDeviation(
@@ -592,12 +591,12 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "ge",
-                body - slack + viol == lb,
+                body - aux + viol == lb,
             )
             deviations[-1].generated_constraint_name = generated_name
 
             totsu_logger.debug(
-                f"Elasticized GE constraint '{original_name}' with slack {slack.name} "
+                f"Elasticized GE constraint '{original_name}' with aux {aux.name} "
                 f"and violation {viol.name}."
             )
             return deviations
@@ -605,7 +604,7 @@ class ElasticFeasibilityTool:
         # Pure LE: body <= ub
         if ub is not None and lb is None:
             con.deactivate()
-            slack = self._new_slack_var(model, f"{name_base}_slack")
+            aux = self._new_aux_var(model, f"{name_base}_aux")
             viol = self._new_violation_var(model, f"{name_base}_viol")
             deviations.append(
                 ElasticDeviation(
@@ -626,12 +625,12 @@ class ElasticFeasibilityTool:
                 model,
                 name_base,
                 "le",
-                body + slack - viol == ub,
+                body + aux - viol == ub,
             )
             deviations[-1].generated_constraint_name = generated_name
 
             totsu_logger.debug(
-                f"Elasticized LE constraint '{original_name}' with slack {slack.name} "
+                f"Elasticized LE constraint '{original_name}' with aux {aux.name} "
                 f"and violation {viol.name}."
             )
             return deviations
@@ -640,8 +639,8 @@ class ElasticFeasibilityTool:
         totsu_logger.debug(f"Skipped constraint '{original_name}' – no bounds detected.")
         return deviations
 
-    def _new_slack_var(self, model, base_name: str) -> Var:
-        """Create a non-penalized slack-side elastic variable."""
+    def _new_aux_var(self, model, base_name: str) -> Var:
+        """Create a non-penalized aux-side elastic variable."""
         return self._new_elastic_var(model, base_name)
 
     def _new_violation_var(self, model, base_name: str) -> Var:
@@ -653,13 +652,13 @@ class ElasticFeasibilityTool:
         Create a new non-negative elastic variable with a unique name.
 
         IMPORTANT: generated names are prefixed with ``elastic_dev_`` and
-        ``base_name`` is sanitized (e.g., ``slack``/``artificial`` -> ``dev``)
+        ``base_name`` is sanitized (e.g., ``aux``/``artificial`` -> ``dev``)
         so name-based basis heuristics (like Tableau checks) do not misclassify
-        elastic vars; violation-vs-slack semantics are tracked by caller
-        (`_new_violation_var`/`_new_slack_var`) and only violation vars are
+        elastic vars; violation-vs-aux semantics are tracked by caller
+        (`_new_violation_var`/`_new_aux_var`) and only violation vars are
         recorded in ``result.deviations``.
         """
-        safe_base_name = re.sub(r"slack", "dev", base_name, flags=re.IGNORECASE)
+        safe_base_name = re.sub(r"aux", "dev", base_name, flags=re.IGNORECASE)
         safe_base_name = re.sub(r"artificial", "dev", safe_base_name, flags=re.IGNORECASE)
         name = f"elastic_dev_{safe_base_name}_{self._var_counter}"
         self._var_counter += 1

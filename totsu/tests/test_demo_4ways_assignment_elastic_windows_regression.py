@@ -45,7 +45,7 @@ def test_demo_4way_elastic_windows_regression(capsys):
         and dev.var.value is not None
         and dev.var.value > 1e-8
     ]
-    assert c2_day1_early, "Expected positive window_early deviation at (c2, 1)"
+    assert c2_day1_early, "Expected positive window_early violation at (c2, 1)"
 
     window_cost = sum(
         row["cost"] for row in result.violation_breakdown

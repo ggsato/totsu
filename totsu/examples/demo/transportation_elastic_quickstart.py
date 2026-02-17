@@ -102,7 +102,7 @@ def _format_rows(rows: Iterable[dict], max_rows: int = 10) -> str:
         lines.append(
             "  - "
             f"{name_out} [index={row.get('index', ())}]: "
-            f"deviation={row['deviation']:.3g}, cost={row['cost']:.3g}, {direction}"
+            f"violation={row['violation']:.3g}, cost={row['cost']:.3g}, {direction}"
         )
     if len(rows) > max_rows:
         lines.append(f"  ... ({len(rows) - max_rows} more)")
@@ -110,13 +110,13 @@ def _format_rows(rows: Iterable[dict], max_rows: int = 10) -> str:
 
 
 def _direction_text(row: dict) -> str:
-    deviation = float(row.get("deviation", 0.0))
+    violation = float(row.get("violation", 0.0))
     sense = str(row.get("sense", "")).upper()
     if sense in {"EQ"}:
-        return f"relax by ±{deviation:.3g}"
+        return f"relax by ±{violation:.3g}"
     if sense in {"GE", "RANGE_GE"}:
-        return f"relax lower bound by -{deviation:.3g}"
-    return f"relax upper bound by +{deviation:.3g}"
+        return f"relax lower bound by -{violation:.3g}"
+    return f"relax upper bound by +{violation:.3g}"
 
 
 def _transportation_pretty_name(con) -> str:
@@ -139,7 +139,7 @@ def _attach_pretty_names(
     enriched: List[dict] = []
     for row in rows:
         new_row = dict(row)
-        dev = deviations_by_var.get(row.get("deviation_var", ""))
+        dev = deviations_by_var.get(row.get("violation_var", ""))
         con = getattr(dev, "original_constraint", None) if dev is not None else None
         if con is not None:
             try:
@@ -157,7 +157,7 @@ def _demand_repair_suggestion(rows: List[dict], fallback_gap: float) -> Optional
         node = _extract_demand_node(row.get("constraint_name", ""))
         if node is None:
             continue
-        amount = row["deviation"]
+        amount = row["violation"]
         return f"Suggestion: reduce demand at {node} by {amount:.3g}, or add +{amount:.3g} supply overall."
     if fallback_gap > 0:
         return f"Suggestion: reduce demand by {fallback_gap:.3g}, or add +{fallback_gap:.3g} supply overall."

@@ -162,7 +162,7 @@ The generic tool guarantees:
 
 1. **Feasible model** even if original constraints conflict
 2. **Penalty decomposition** for each constraint
-3. **Violation diagnostics** (`violation_amount`; optional derived `margin_amount`)
+3. **Violation diagnostics** (`violation`; optional derived `margin_amount`)
 4. **Reconstructable original constraints**
 5. Completely domain-agnostic logs and structure
 
@@ -187,7 +187,7 @@ The generic API/CLI reports each top relaxation with:
 
 * Fully-qualified Pyomo constraint name (`constraint_name`)
 * Constraint index (`index`)
-* Violation amount (`violation_amount`)
+* Violation amount (`violation`)
 * Violation cost (`cost`)
 * Structural sense/bound metadata (`sense`, `bound`)
 * Optional derived margin amount (`margin_amount`)

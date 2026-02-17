@@ -155,7 +155,7 @@ def test_populate_violation_summary_computes_sorted_costs():
     assert result.violation_breakdown[0]["component_name"] == "c_le"
     assert result.violation_breakdown[0]["cost"] == pytest.approx(10.0)
     assert result.violation_breakdown[0]["constraint_name"] == "c_le"
-    assert result.violation_breakdown[0]["deviation_var"].startswith("elastic.elastic_dev_")
+    assert result.violation_breakdown[0]["violation_var"].startswith("elastic.elastic_dev_")
     assert result.violation_breakdown[0]["generated_constraint_name"].startswith("elastic.elastic_con_")
     assert result.violation_breakdown[0]["index"] == ()
     assert result.violation_breakdown[0]["sense"] == "LE"
@@ -223,18 +223,17 @@ def test_populate_violation_summary_with_variable_contributions():
     for row in result.violation_breakdown:
         for key in (
             "component_name",
-            "deviation",
+            "violation",
             "penalty",
             "cost",
             "constraint_name",
-            "deviation_var",
+            "violation_var",
             "generated_constraint_name",
             "index",
             "sense",
             "bound",
             "kind",
             "body_value",
-            "violation_amount",
             "variable_contributions",
         ):
             assert key in row
@@ -246,7 +245,7 @@ def test_populate_violation_summary_with_variable_contributions():
             assert "value" in first
 
 
-def test_deviations_include_only_violation_vars_not_slack_vars():
+def test_deviations_include_only_violation_vars_not_aux_vars():
     model = ConcreteModel()
     model.x = Var(within=NonNegativeReals)
     model.c_le = Constraint(expr=model.x <= 10)
@@ -368,7 +367,7 @@ def test_objective_value_breakdown_original_plus_violation_after_solve():
     assert result.active_objective_value == pytest.approx(result.combined_objective_value, abs=1e-8)
 
 
-def test_le_constraint_uses_slack_and_violation_without_direction_flip():
+def test_le_constraint_uses_aux_and_violation_without_direction_flip():
     model = ConcreteModel()
     model.x = Var(within=NonNegativeReals)
     model.c_le = Constraint(expr=model.x <= 10)
@@ -384,21 +383,21 @@ def test_le_constraint_uses_slack_and_violation_without_direction_flip():
 
     elastic_vars = list(result.model.elastic.component_data_objects(Var, descend_into=False))
     viol_var = result.deviations[0].var
-    slack_var = next(v for v in elastic_vars if v is not viol_var)
+    aux_var = next(v for v in elastic_vars if v is not viol_var)
     solver = TotsuSimplexSolver()
 
     model.x.fix(0.0)
     solver.solve(model)
-    assert value(slack_var) == pytest.approx(10.0, abs=1e-8)
+    assert value(aux_var) == pytest.approx(10.0, abs=1e-8)
     assert value(viol_var) == pytest.approx(0.0, abs=1e-8)
 
     model.x.fix(12.0)
     solver.solve(model)
-    assert value(slack_var) == pytest.approx(0.0, abs=1e-8)
+    assert value(aux_var) == pytest.approx(0.0, abs=1e-8)
     assert value(viol_var) == pytest.approx(2.0, abs=1e-8)
 
 
-def test_ge_constraint_uses_slack_and_violation_without_direction_flip():
+def test_ge_constraint_uses_aux_and_violation_without_direction_flip():
     model = ConcreteModel()
     model.x = Var(within=NonNegativeReals)
     model.c_ge = Constraint(expr=model.x >= 10)
@@ -414,17 +413,17 @@ def test_ge_constraint_uses_slack_and_violation_without_direction_flip():
 
     elastic_vars = list(result.model.elastic.component_data_objects(Var, descend_into=False))
     viol_var = result.deviations[0].var
-    slack_var = next(v for v in elastic_vars if v is not viol_var)
+    aux_var = next(v for v in elastic_vars if v is not viol_var)
     solver = TotsuSimplexSolver()
 
     model.x.fix(12.0)
     solver.solve(model)
-    assert value(slack_var) == pytest.approx(2.0, abs=1e-8)
+    assert value(aux_var) == pytest.approx(2.0, abs=1e-8)
     assert value(viol_var) == pytest.approx(0.0, abs=1e-8)
 
     model.x.fix(8.0)
     solver.solve(model)
-    assert value(slack_var) == pytest.approx(0.0, abs=1e-8)
+    assert value(aux_var) == pytest.approx(0.0, abs=1e-8)
     assert value(viol_var) == pytest.approx(2.0, abs=1e-8)
 
 
@@ -445,9 +444,9 @@ def test_original_plus_violation_tracks_solver_and_natural_objective_for_maximiz
 
     elastic_vars = list(result.model.elastic.component_data_objects(Var, descend_into=False))
     viol_var = result.deviations[0].var
-    slack_var = next(v for v in elastic_vars if v is not viol_var)
+    aux_var = next(v for v in elastic_vars if v is not viol_var)
     model.x.set_value(5.0)
-    slack_var.set_value(2.0)
+    aux_var.set_value(2.0)
     viol_var.set_value(0.0)
     tool.populate_violation_summary(result, tol=1e-8)
 

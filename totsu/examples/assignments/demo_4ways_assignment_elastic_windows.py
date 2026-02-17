@@ -87,7 +87,7 @@ def apply_elasticity(m, penalties):
         }
     """
 
-    # New deviation variables
+    # New violation variables
     m.s_short = Var(m.C, m.D, within=NonNegativeReals)
     m.e_ot = Var(m.W, m.D, within=NonNegativeReals)
     m.e_forbidden = Var(m.W, m.C, m.D, m.S, within=NonNegativeReals)
@@ -172,7 +172,7 @@ def report_elastic_infeasibility_for_4way(
       * Which worker's availability is violated?
       * Which customers' windows are violated (by day)?
 
-    It looks at dev.component_name and dev.index to categorize deviations.
+    It looks at dev.component_name and dev.index to categorize violations.
     """
 
     def build_display_label(component_name, index):
@@ -203,15 +203,15 @@ def report_elastic_infeasibility_for_4way(
 
     rows = []
     for dev in result.deviations:
-        deviation = dev.var.value
-        if deviation is None or deviation <= tol:
+        violation = dev.var.value
+        if violation is None or violation <= tol:
             continue
 
-        cost = dev.penalty * deviation
+        cost = dev.penalty * violation
         rows.append(
             {
                 "display_label": build_display_label(dev.component_name, dev.index),
-                "deviation": deviation,
+                "violation": violation,
                 "penalty": dev.penalty,
                 "cost": cost,
                 "category": build_category(dev.component_name),
@@ -229,13 +229,13 @@ def report_elastic_infeasibility_for_4way(
 
     top_rows = rows[:5]
     if not top_rows:
-        printer("  - none (all deviations within tolerance)")
+        printer("  - none (all violations within tolerance)")
     else:
         for row in top_rows:
             printer(
                 "  - "
                 f"{row['display_label']}: "
-                f"deviation={row['deviation']:.1f}, "
+                f"violation={row['violation']:.1f}, "
                 f"penalty={row['penalty']:g}, "
                 f"cost={row['cost']:g}"
             )

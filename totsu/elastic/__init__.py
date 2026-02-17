@@ -19,13 +19,13 @@ def _is_feasible_termination(termination_condition) -> bool:
 
 
 def _format_direction(row: Dict) -> str:
-    deviation = float(row.get("deviation", 0.0))
+    violation = float(row.get("violation", 0.0))
     sense = str(row.get("sense", "")).upper()
     if sense in {"EQ"}:
-        return f"relax by ±{deviation:.6g}"
+        return f"relax by ±{violation:.6g}"
     if sense in {"GE", "RANGE_GE"}:
-        return f"relax lower bound by -{deviation:.6g}"
-    return f"relax upper bound by +{deviation:.6g}"
+        return f"relax lower bound by -{violation:.6g}"
+    return f"relax upper bound by +{violation:.6g}"
 
 
 def _decorate_top_relaxations(
@@ -40,7 +40,7 @@ def _decorate_top_relaxations(
         row["direction"] = _format_direction(row)
 
         if pretty_name is not None:
-            dev = deviations_by_var.get(row.get("deviation_var", ""))
+            dev = deviations_by_var.get(row.get("violation_var", ""))
             con = getattr(dev, "original_constraint", None) if dev is not None else None
             if con is not None:
                 try:
@@ -76,7 +76,7 @@ class AnalysisResult:
             name_out = f"{raw_name} ({pretty})" if pretty else raw_name
             print(
                 f"  - {name_out} [index={row.get('index', ())}]: "
-                f"deviation={row['deviation']:.6g}, cost={row['cost']:.6g}, "
+                f"violation={row['violation']:.6g}, cost={row['cost']:.6g}, "
                 f"{row.get('direction', _format_direction(row))}"
             )
 

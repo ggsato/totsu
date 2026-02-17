@@ -15,7 +15,7 @@ def test_structural_diagnosis_report_labels_and_interpretation(capsys):
         ElasticDeviation(
             var=m.dev_window,
             penalty=100.0,
-            kind="slack",
+            kind="aux",
             component_name="window_late",
             index=("c2", 1),
             original_name="window_late[c2,1]",
@@ -26,7 +26,7 @@ def test_structural_diagnosis_report_labels_and_interpretation(capsys):
         ElasticDeviation(
             var=m.dev_demand,
             penalty=100.0,
-            kind="slack",
+            kind="aux",
             component_name="client_demand",
             index=("c1",),
             original_name="client_demand[c1]",
