@@ -59,6 +59,7 @@ class AnalysisResult:
     is_feasible_original: bool
     is_feasible_elastic: Optional[bool]
     top_relaxations: List[Dict]
+    margin_summary: List[Dict]
 
     def print_summary(self) -> None:
         print("=== Totsu Infeasibility Analysis ===")
@@ -79,6 +80,16 @@ class AnalysisResult:
                 f"violation={row['violation']:.6g}, cost={row['cost']:.6g}, "
                 f"{row.get('direction', _format_direction(row))}"
             )
+        if self.margin_summary:
+            print("Top tight constraints (by margin):")
+            for row in self.margin_summary:
+                margin = row.get("margin")
+                margin_txt = "None" if margin is None else f"{margin:.6g}"
+                print(
+                    f"  - {row.get('constraint_name', '<unknown>')} "
+                    f"[index={row.get('index', ())}, sense={row.get('sense', '?')}]: "
+                    f"margin={margin_txt}, is_tight={row.get('is_tight', False)}"
+                )
 
     def to_dict(self) -> Dict:
         return {
@@ -86,6 +97,7 @@ class AnalysisResult:
             "is_feasible_original": self.is_feasible_original,
             "is_feasible_elastic": self.is_feasible_elastic,
             "top_relaxations": list(self.top_relaxations),
+            "margin_summary": list(self.margin_summary),
         }
 
 
@@ -98,6 +110,9 @@ def analyze_infeasibility(
     default_penalty: float = 1.0,
     max_items: int = 10,
     pretty_name: Optional[Callable] = None,
+    include_margin: bool = False,
+    margin_scope: str = "non_elastic",
+    margin_max_items: int = 10,
 ) -> AnalysisResult:
     solver_name = resolve_solver_name(solver, solver_factory=SolverFactory)
     solver_instance = SolverFactory(solver_name)
@@ -114,6 +129,7 @@ def analyze_infeasibility(
             is_feasible_original=True,
             is_feasible_elastic=None,
             top_relaxations=[],
+            margin_summary=[],
         )
 
     objective_mode = "violation_only" if violation_only else "original_plus_violation"
@@ -128,6 +144,16 @@ def analyze_infeasibility(
     is_feasible_elastic = _is_feasible_termination(elastic_term)
 
     ElasticFeasibilityTool.populate_violation_summary(elastic_result, tol=1e-9)
+    margin_summary: List[Dict] = []
+    if include_margin:
+        ElasticFeasibilityTool.populate_margin_summary(
+            elastic_result,
+            model=elastic_result.model,
+            tol=1e-9,
+            scope=margin_scope,
+            max_items=margin_max_items,
+        )
+        margin_summary = list(elastic_result.margin_summary)
     return AnalysisResult(
         solver_name=solver_name,
         is_feasible_original=False,
@@ -137,6 +163,7 @@ def analyze_infeasibility(
             max_items=max_items,
             pretty_name=pretty_name,
         ),
+        margin_summary=margin_summary,
     )
 
 

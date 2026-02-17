@@ -477,3 +477,78 @@ def test_no_constraintdata_deprecation_warning_on_apply():
         )
 
     assert not any("_ConstraintData" in str(w.message) for w in captured)
+
+
+def test_margin_summary_non_elastic_scope_computes_expected_margins_and_tightness():
+    model = ConcreteModel()
+    model.x = Var(within=NonNegativeReals)
+    model.target = Constraint(expr=model.x <= 10)   # elasticized target
+    model.le_margin = Constraint(expr=model.x <= 8)
+    model.le_tight = Constraint(expr=model.x <= 5)
+    model.ge_margin = Constraint(expr=model.x >= 2)
+    model.eq_fix = Constraint(expr=model.x == 5)
+    model.obj = Objective(expr=0.0, sense=minimize)
+
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+    result = tool.apply(
+        model,
+        constraints=["target"],
+        objective_mode="violation_only",
+        clone=False,
+        include_margin=True,
+        margin_scope="non_elastic",
+        margin_max_items=50,
+    )
+
+    solver = TotsuSimplexSolver()
+    solver.solve(model)
+    tool.populate_margin_summary(result, model=model, tol=1e-8, scope="non_elastic", max_items=50)
+
+    rows = result.margin_summary
+    names = {row["constraint_name"] for row in rows}
+    assert "target" not in names
+    assert {"le_margin", "le_tight", "ge_margin", "eq_fix"}.issubset(names)
+    assert all(not row["constraint_name"].startswith("elastic.") for row in rows)
+
+    by_name = {row["constraint_name"]: row for row in rows}
+    assert by_name["le_margin"]["sense"] == "LE"
+    assert by_name["le_margin"]["margin"] == pytest.approx(3.0, abs=1e-8)
+    assert by_name["le_margin"]["is_tight"] is False
+
+    assert by_name["le_tight"]["sense"] == "LE"
+    assert by_name["le_tight"]["margin"] == pytest.approx(0.0, abs=1e-8)
+    assert by_name["le_tight"]["is_tight"] is True
+
+    assert by_name["ge_margin"]["sense"] == "GE"
+    assert by_name["ge_margin"]["margin"] == pytest.approx(3.0, abs=1e-8)
+    assert by_name["ge_margin"]["is_tight"] is False
+
+    assert by_name["eq_fix"]["sense"] == "EQ"
+    assert by_name["eq_fix"]["margin"] is None
+    assert by_name["eq_fix"]["is_tight"] is False
+    assert result.total_tight_constraints >= 1
+
+
+def test_margin_summary_eq_constraint_reports_none_margin_and_not_tight():
+    model = ConcreteModel()
+    model.x = Var(within=NonNegativeReals)
+    model.eq_only = Constraint(expr=model.x == 2)
+    model.obj = Objective(expr=0.0, sense=minimize)
+
+    tool = ElasticFeasibilityTool(default_penalty=1.0)
+    result = tool.apply(
+        model,
+        constraints=[],
+        objective_mode="keep_original",
+        clone=False,
+    )
+
+    solver = TotsuSimplexSolver()
+    solver.solve(model)
+    tool.populate_margin_summary(result, model=model, tol=1e-8, scope="all", max_items=10)
+
+    eq_rows = [row for row in result.margin_summary if row["constraint_name"] == "eq_only"]
+    assert len(eq_rows) == 1
+    assert eq_rows[0]["sense"] == "EQ"
+    assert eq_rows[0]["margin"] is None
+    assert eq_rows[0]["is_tight"] is False

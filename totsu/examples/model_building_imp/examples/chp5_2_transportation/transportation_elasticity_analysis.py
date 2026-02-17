@@ -28,6 +28,23 @@ def main():
         default="glpk",
         help="Solver to use for elastic analysis.",
     )
+    parser.add_argument(
+        "--include-margin",
+        action="store_true",
+        help="Include derived margin/tightness diagnostics.",
+    )
+    parser.add_argument(
+        "--margin-scope",
+        choices=("non_elastic", "elastic", "all"),
+        default="non_elastic",
+        help="Margin reporting scope.",
+    )
+    parser.add_argument(
+        "--margin-max-items",
+        type=int,
+        default=10,
+        help="Maximum margin rows to show.",
+    )
     args = parser.parse_args()
 
     # increase the requirements of T2 by 100%
@@ -46,6 +63,9 @@ def main():
         penalty_map={"supply_constraints": 10.0},  # specify the penalty for each constraint (default is 1.0)
         objective_mode="violation_only",          # recommended
         clone=True,                               # default: True, modify the model in-place if False
+        include_margin=args.include_margin,
+        margin_scope=args.margin_scope,
+        margin_max_items=args.margin_max_items,
     )
 
     elastic_model = result.model
@@ -85,6 +105,14 @@ def main():
 
     # 4) populate the violation summary and print the results
     ElasticFeasibilityTool.populate_violation_summary(result, tol=1e-8, include_variable_contributions=True)
+    if args.include_margin:
+        ElasticFeasibilityTool.populate_margin_summary(
+            result,
+            model=elastic_model,
+            tol=1e-8,
+            scope=args.margin_scope,
+            max_items=args.margin_max_items,
+        )
 
     print("total_violation_cost =", result.total_violation_cost)
     print("objective_mode =", result.objective_mode)
@@ -94,6 +122,10 @@ def main():
     print("combined_objective_value =", result.combined_objective_value)
     for row in result.violation_breakdown[:10]:
         print(row)
+    if args.include_margin:
+        print("top tight constraints (by margin):")
+        for row in result.margin_summary[: args.margin_max_items]:
+            print(row)
 
     # 5) optional: run original_plus_violation mode
     print("building elastic model with objective_mode='original_plus_violation'")
@@ -105,6 +137,9 @@ def main():
             objective_mode="original_plus_violation",
             original_objective_weight=1.0,
             clone=True,
+            include_margin=args.include_margin,
+            margin_scope=args.margin_scope,
+            margin_max_items=args.margin_max_items,
         )
         elastic_model_plus = result_plus.model
         print("solving the elastic model with objective_mode='original_plus_violation'")
@@ -114,6 +149,14 @@ def main():
         ElasticFeasibilityTool.populate_violation_summary(
             result_plus, tol=1e-8, include_variable_contributions=True
         )
+        if args.include_margin:
+            ElasticFeasibilityTool.populate_margin_summary(
+                result_plus,
+                model=elastic_model_plus,
+                tol=1e-8,
+                scope=args.margin_scope,
+                max_items=args.margin_max_items,
+            )
         print("original_plus total_violation_cost =", result_plus.total_violation_cost)
         print("objective_mode =", result_plus.objective_mode)
         print("active_objective_value =", result_plus.active_objective_value)
@@ -122,6 +165,10 @@ def main():
         print("combined_objective_value =", result_plus.combined_objective_value)
         for row in result_plus.violation_breakdown[:10]:
             print(row)
+        if args.include_margin:
+            print("original_plus top tight constraints (by margin):")
+            for row in result_plus.margin_summary[: args.margin_max_items]:
+                print(row)
     except ValueError as ex:
         print("original_plus_violation validation failed:", str(ex))
     except Exception as ex:

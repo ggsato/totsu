@@ -162,7 +162,7 @@ The generic tool guarantees:
 
 1. **Feasible model** even if original constraints conflict
 2. **Penalty decomposition** for each constraint
-3. **Violation diagnostics** (`violation`; optional derived `margin_amount`)
+3. **Violation diagnostics** (`violation`; optional derived `margin`)
 4. **Reconstructable original constraints**
 5. Completely domain-agnostic logs and structure
 
@@ -190,9 +190,13 @@ The generic API/CLI reports each top relaxation with:
 * Violation amount (`violation`)
 * Violation cost (`cost`)
 * Structural sense/bound metadata (`sense`, `bound`)
-* Optional derived margin amount (`margin_amount`)
+* Optional derived margin/tightness report (`margin_summary`)
 
 This keeps output concise and interpretable even when only model structure is known.
+
+Optional derived tightness reporting can also be produced as a separate
+`margin_summary`, computed post-solve from original constraints and solution
+`x*` (no additional elastic decision variables).
 
 ---
 

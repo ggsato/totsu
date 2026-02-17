@@ -46,6 +46,8 @@ class ElasticResult:
     deviations: List[ElasticDeviation] = field(default_factory=list)
     total_violation_cost: float = 0.0
     violation_breakdown: List[dict] = field(default_factory=list)
+    margin_summary: List[dict] = field(default_factory=list)
+    total_tight_constraints: int = 0
     objective_mode: Optional[str] = None
     solver_objective_expr: Any = field(default=None, repr=False, compare=False)
     solver_objective_value: Optional[float] = None
@@ -96,6 +98,9 @@ class ElasticFeasibilityTool:
         objective_mode: str = "violation_only",
         original_objective_weight: float = 1.0,
         clone: bool = True,
+        include_margin: bool = False,
+        margin_scope: str = "non_elastic",
+        margin_max_items: int = 50,
     ) -> ElasticResult:
         """
         Transform `model` into an elastic-feasibility model.
@@ -132,6 +137,12 @@ class ElasticFeasibilityTool:
             objective_mode="original_plus_violation".
         clone:
             If True, operate on a cloned model (leaving `model` untouched).
+        include_margin:
+            If True, populate derived margin/tightness diagnostics.
+        margin_scope:
+            One of {"non_elastic", "elastic", "all"}.
+        margin_max_items:
+            Max number of margin rows to keep.
 
         Returns
         -------
@@ -180,6 +191,14 @@ class ElasticFeasibilityTool:
         )
         # Initial values before solve (all violation vars are typically unset).
         self.populate_violation_summary(result, tol=self.tol)
+        if include_margin:
+            self.populate_margin_summary(
+                result,
+                model=working_model,
+                tol=self.tol,
+                scope=margin_scope,
+                max_items=margin_max_items,
+            )
         return result
 
     @staticmethod
@@ -242,6 +261,121 @@ class ElasticFeasibilityTool:
         result.violation_breakdown = breakdown
         result.total_violation_cost = sum(row["cost"] for row in breakdown)
         ElasticFeasibilityTool.populate_objective_summary(result)
+        return result
+
+    @staticmethod
+    def _normalize_index_tuple(con: ConstraintData) -> Tuple[Any, ...]:
+        try:
+            idx = con.index()
+        except Exception:
+            idx = None
+        if idx is None:
+            return ()
+        if isinstance(idx, tuple):
+            return idx
+        return (idx,)
+
+    @staticmethod
+    def _is_generated_elastic_constraint(con: ConstraintData) -> bool:
+        try:
+            parent = con.parent_component()
+            parent_block = parent.parent_block() if parent is not None else None
+            if getattr(parent_block, "name", None) == "elastic":
+                return True
+        except Exception:
+            pass
+        name = str(getattr(con, "name", ""))
+        return name.startswith("elastic.")
+
+    @staticmethod
+    def populate_margin_summary(
+        result: ElasticResult,
+        model,
+        tol: float = 1e-9,
+        scope: str = "non_elastic",
+        max_items: int = 50,
+    ) -> ElasticResult:
+        """
+        Populate derived margin/tightness diagnostics from original constraints.
+
+        Margins are computed from original constraint bodies evaluated at the
+        current model solution state; no extra elastic variables are introduced.
+        """
+        allowed_scopes = {"non_elastic", "elastic", "all"}
+        if scope not in allowed_scopes:
+            raise ValueError(f"Unsupported margin scope '{scope}'. Expected one of {sorted(allowed_scopes)}.")
+
+        base_model = model if model is not None else result.model
+        elastified_by_id = {
+            id(dev.original_constraint): dev.original_constraint
+            for dev in result.deviations
+            if getattr(dev, "original_constraint", None) is not None
+        }
+
+        all_constraints = list(base_model.component_data_objects(Constraint, active=None, descend_into=True))
+        rows: List[dict] = []
+
+        def add_row(con: ConstraintData, sense: str, bound: float, margin: Optional[float], body_val: Optional[float]) -> None:
+            row = {
+                "constraint_name": con.name,
+                "index": ElasticFeasibilityTool._normalize_index_tuple(con),
+                "sense": sense,
+                "bound": float(bound),
+                "body_value": body_val,
+                "margin": margin,
+                "is_tight": (margin is not None) and (abs(margin) <= tol),
+            }
+            rows.append(row)
+
+        for con in all_constraints:
+            if ElasticFeasibilityTool._is_generated_elastic_constraint(con):
+                continue
+
+            con_id = id(con)
+            is_elasticized_original = con_id in elastified_by_id
+            if scope == "elastic" and not is_elasticized_original:
+                continue
+            if scope == "non_elastic" and (is_elasticized_original or not con.active):
+                continue
+            if scope == "all" and (not is_elasticized_original and not con.active):
+                continue
+
+            lb = value(con.lower) if con.has_lb() else None
+            ub = value(con.upper) if con.has_ub() else None
+            body_val = ElasticFeasibilityTool._safe_value_of_constraint_body(con)
+
+            if lb is not None and ub is not None and abs(lb - ub) <= tol:
+                add_row(con, "EQ", lb, None, body_val)
+                continue
+
+            if ub is not None and lb is None:
+                margin = None if body_val is None else max(0.0, float(ub) - body_val)
+                add_row(con, "LE", ub, margin, body_val)
+                continue
+
+            if lb is not None and ub is None:
+                margin = None if body_val is None else max(0.0, body_val - float(lb))
+                add_row(con, "GE", lb, margin, body_val)
+                continue
+
+            if lb is not None and ub is not None and lb < ub - tol:
+                margin_ge = None if body_val is None else max(0.0, body_val - float(lb))
+                margin_le = None if body_val is None else max(0.0, float(ub) - body_val)
+                add_row(con, "GE", lb, margin_ge, body_val)
+                add_row(con, "LE", ub, margin_le, body_val)
+
+        rows.sort(
+            key=lambda row: (
+                row["margin"] is None,
+                float("inf") if row["margin"] is None else row["margin"],
+                str(row["constraint_name"]),
+            )
+        )
+        if max_items is not None and max_items >= 0:
+            rows = rows[: int(max_items)]
+
+        result.margin_summary = rows
+        result.total_tight_constraints = sum(1 for row in rows if row["is_tight"])
         return result
 
     @staticmethod

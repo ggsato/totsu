@@ -190,6 +190,23 @@ def main() -> None:
         default=10.0,
         help="Penalty multiplier used in original_plus_violation mode. Default: 10.0",
     )
+    parser.add_argument(
+        "--include-margin",
+        action="store_true",
+        help="Include derived margin/tightness diagnostics.",
+    )
+    parser.add_argument(
+        "--margin-scope",
+        default="non_elastic",
+        choices=["non_elastic", "elastic", "all"],
+        help="Margin reporting scope. Default: non_elastic",
+    )
+    parser.add_argument(
+        "--margin-max-items",
+        type=int,
+        default=10,
+        help="Max constraints to show in margin diagnostics. Default: 10",
+    )
     args = parser.parse_args()
 
     m = build_infeasible_transportation_model()
@@ -243,6 +260,9 @@ def main() -> None:
         objective_mode=objective_mode,
         original_objective_weight=original_weight,
         clone=True,
+        include_margin=args.include_margin,
+        margin_scope=args.margin_scope,
+        margin_max_items=args.margin_max_items,
     )
 
     # If we combine original objective, scale violation penalties.
@@ -258,6 +278,14 @@ def main() -> None:
 
     # 3) Summarize
     ElasticFeasibilityTool.populate_violation_summary(result, tol=1e-9)
+    if args.include_margin:
+        ElasticFeasibilityTool.populate_margin_summary(
+            result,
+            model=elastic_model,
+            tol=1e-9,
+            scope=args.margin_scope,
+            max_items=args.margin_max_items,
+        )
 
     print("=== Elastic analysis ===")
     print(f"Termination condition: {elastic_term}")
@@ -278,6 +306,17 @@ def main() -> None:
         pretty_name=_transportation_pretty_name,
     )
     print(_format_rows(rows_for_display, max_rows=10))
+    if args.include_margin and result.margin_summary:
+        print()
+        print("Top tight constraints (by margin):")
+        for row in result.margin_summary:
+            margin = row.get("margin")
+            margin_text = "None" if margin is None else f"{margin:.3g}"
+            print(
+                "  - "
+                f"{row.get('constraint_name')} [index={row.get('index', ())}, sense={row.get('sense')}]: "
+                f"margin={margin_text}, is_tight={row.get('is_tight', False)}"
+            )
 
     # Add a simple human-level interpretation for this model family.
     total_supply = sum(value(elastic_model.supply[s]) for s in elastic_model.S)
