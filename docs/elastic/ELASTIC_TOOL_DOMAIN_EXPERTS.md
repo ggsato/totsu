@@ -111,7 +111,7 @@ If we now try to enforce availability windows as hard rules, it becomes very eas
 
 The **generic elastic tool** knows how to:
 
-* Add slacks/excess variables
+* Add aux + violation variables
 * Turn inequalities into equalities
 * Add penalty terms to the objective
 
@@ -148,15 +148,15 @@ For this example, a domain expert might say:
 
 ## 4. Elastic Formulation
 
-### 4.1. New Deviation Variables
+### 4.1. New Violation Variables
 
-We introduce:
+We introduce penalized **violation variables**:
 
-* `s_short[c,d] ≥ 0` — client `c` shortfall on day `d`
-* `e_ot[w,d] ≥ 0` — overtime for worker `w` on day `d`
-* `e_forbidden[w,c,d,s] ≥ 0` — violation of forbidden pair `(w,c)`
-* `e_early[c,d] ≥ 0` — serving client `c` **before** `start[c]` on day `d`
-* `e_late[c,d] ≥ 0` — serving client `c` **after** `end[c]` on day `d`
+* `s_short[c,d] ≥ 0` — client `c` shortfall violation on day `d`
+* `e_ot[w,d] ≥ 0` — overtime violation for worker `w` on day `d`
+* `e_forbidden[w,c,d,s] ≥ 0` — forbidden-pair violation for `(w,c)`
+* `e_early[c,d] ≥ 0` — early-window violation: serving client `c` **before** `start[c]` on day `d`
+* `e_late[c,d] ≥ 0` — late-window violation: serving client `c` **after** `end[c]` on day `d`
 
 Then we give them penalties, e.g.:
 
@@ -374,8 +374,8 @@ Back to generic guidance: [docs/elastic/ELASTIC_TOOL_GENERIC.md](ELASTIC_TOOL_GE
 
 ### Generic Elastic Tool
 
-* Adds deviation variables (`s_short`, `e_ot`, `e_forbidden`, `e_early`, `e_late`, …)
-* Converts inequalities into equalities with slack/excess
+* Adds aux + violation variables (`s_short`, `e_ot`, `e_forbidden`, `e_early`, `e_late`, …)
+* Converts inequalities into equalities using internal aux terms while penalizing only violation variables
 * Builds the aggregate penalty objective
 * Guarantees: *model is always solvable*
 

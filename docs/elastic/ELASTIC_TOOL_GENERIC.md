@@ -1,7 +1,7 @@
 ### *What a Generic Elastic-Feasibility Tool Does (Independent of Any Domain)*
 
 This document describes the **generic functionality** of an elastic-feasibility tool in mathematical optimization.
-It operates purely on *structure*, *variables*, and *constraints* — not on domain semantics.
+It operates purely on *structure*, *variables*, and *constraints* - not on domain semantics.
 
 ---
 
@@ -9,11 +9,47 @@ It operates purely on *structure*, *variables*, and *constraints* — not on dom
 
 A generic elasticity tool automatically transforms **hard constraints** into **soft constraints** by adding:
 
-* **Slack variables** (positive deviation below a requirement)
-* **Excess variables** (positive deviation above a limit)
+* **Aux variables** (unpenalized, internal balancing variables)
+* **Violation variables** (penalized, measured structural break)
 * **Penalty terms** in the objective
 
 This lets a model stay **feasible**, even if the original constraints are impossible to satisfy, while still guiding the solver to **minimize violation**.
+
+---
+
+# **2. Terminology (Public Semantics)**
+
+Public-facing outputs and docs should use:
+
+* **violation**: non-negative constraint violation amount
+* **margin**: non-negative satisfied-side slack (feasible-side headroom)
+* **residual** (optional/internal): signed structural difference
+
+For a constraint with body `a·x` and bound/right-hand side `b`:
+
+## LE constraint: `a·x <= b`
+
+* `violation(x) = max(0, a·x - b)`
+* `margin(x) = max(0, b - a·x)`
+* `residual(x) = b - a·x`
+
+## GE constraint: `a·x >= b`
+
+* `violation(x) = max(0, b - a·x)`
+* `margin(x) = max(0, a·x - b)`
+* `residual(x) = a·x - b`
+
+## EQ constraint: `a·x = b`
+
+* `violation(x) = |a·x - b|`
+* `margin(x)`: not directionally defined for equality; use `None` in public reports (or `0` only when a numeric placeholder is required)
+* `residual(x) = b - a·x` (this document uses `rhs - body` sign convention for equalities)
+
+Terminology note:
+
+* The Elastic tool may introduce internal helpers during transformation.
+* Those helpers are **not** public "margin" values.
+* Avoid calling those helpers "slack" in public Elastic docs, because Pyomo uses "slack" broadly for generic bound-distance concepts.
 
 ---
 
@@ -31,7 +67,7 @@ In short: the tool supplies mechanics, while you define policy.
 
 ---
 
-# **2. Inputs**
+# **3. Inputs**
 
 The generic tool receives:
 
@@ -44,49 +80,59 @@ Nothing in this step depends on domain knowledge.
 
 ---
 
-# **3. Transformations Performed Automatically**
+# **4. Transformations Performed Automatically**
 
-## ✔ **Step 1 — Detect constraint types**
+## ✔ **Step 1 - Detect constraint types**
 
 For each constraint:
 
-* `expr ≤ rhs` → LE type
-* `expr ≥ rhs` → GE type
-* `expr = rhs` → EQ type
+* `expr <= rhs` -> LE type
+* `expr >= rhs` -> GE type
+* `expr = rhs` -> EQ type
 
-The tool does not interpret *what the constraint means* — only its algebraic form.
+The tool does not interpret *what the constraint means* - only its algebraic form.
 
 ---
 
-## ✔ **Step 2 — Introduce deviation variables**
+## ✔ **Step 2 - Introduce aux + violation variables**
 
-| Original Type | Slack/Excess Added                | Meaning                                |
-| ------------- | --------------------------------- | -------------------------------------- |
-| `≤`           | Excess `e ≥ 0`                    | Amount the LHS exceeds the upper bound |
-| `≥`           | Slack `s ≥ 0`                     | Amount the LHS falls short of lower bound |
-| `=`           | Slack+Excess or 2-sided deviation | Equality violation                     |
+| Original Type | Variables Added | Meaning |
+| ------------- | --------------- | ------- |
+| `<=` | Aux `aux >= 0`, Violation `viol >= 0` | `aux` balances equality form; `viol` measures upper-bound break |
+| `>=` | Aux `aux >= 0`, Violation `viol >= 0` | `aux` balances equality form; `viol` measures lower-bound break |
+| `=` | `viol_pos >= 0`, `viol_neg >= 0` | Two-sided equality violation decomposition |
 
-### Example conversion:
+### Why Elastic has aux variables
+
+The aux variable is a modeling artifact used to convert inequalities to equalities while keeping violation variables one-sided and non-negative.
+
+* `aux` is internal and unpenalized.
+* `viol*` variables are penalized and reported as violations.
+* `margin` is not an Elastic decision variable; it is computed after solving from the original constraint and solution `x*`.
+
+### Example conversion (canonical pattern)
 
 ```
-a·x ≤ b   →   a·x - e = b
-a·x ≥ b   →   a·x + s = b
-a·x = b   →   a·x + s - e = b
+LE: body <= ub   ->   body + aux - viol = ub
+GE: body >= lb   ->   body - aux + viol = lb
+EQ: body = rhs   ->   body + viol_pos - viol_neg = rhs
 ```
+
+Only `viol*` terms are penalized and reported as violation; `aux` is not.
 
 The tool ensures:
 
-* All constraints become **equalities**
-* Deviation variables are **non-negative**
+* All transformed constraints are represented as equalities
+* Violation variables are non-negative
 
 ---
 
-## ✔ **Step 3 — Add penalties to the objective**
+## ✔ **Step 3 - Add penalties to the objective**
 
 Generic form:
 
 ```
-min  f(x)  +  Σ (penalty_i · deviation_i)
+min  f(x)  +  Σ (penalty_i · violation_i)
 ```
 
 The tool:
@@ -97,64 +143,59 @@ The tool:
 
 ---
 
-## ✔ **Step 4 — Provide a unified report**
+## ✔ **Step 4 - Provide a unified report**
 
 The output includes:
 
 * A solvable, always-feasible model
-* A deviation summary for each elastified constraint
-* A mapping from deviations → original constraints
+* A violation summary for each elastified constraint
+* A mapping from reported violations -> original constraints
 
 This ensures interpretability without knowing domain semantics.
 
 ---
 
-# **4. Outputs Provided by the Tool**
+# **5. Outputs Provided by the Tool**
 
 The generic tool guarantees:
 
 1. **Feasible model** even if original constraints conflict
 2. **Penalty decomposition** for each constraint
-3. **Violation diagnostics** (slack/excess values)
+3. **Violation diagnostics** (`violation_amount`; optional derived `margin_amount`)
 4. **Reconstructable original constraints**
 5. Completely domain-agnostic logs and structure
 
 ---
 
-# **5. What It *Does Not* Do**
+# **6. What It *Does Not* Do**
 
 The tool deliberately **avoids domain logic**:
 
 * Does *not* decide which constraints should be elastic
 * Does *not* assign meaningful penalties
-* Does *not* interpret meaning (e.g., “workload” or “flex house”)
+* Does *not* interpret meaning (e.g., "workload" or "flex house")
 * Does *not* ensure correctness of domain semantics
 
 Those belong to domain experts and are described in the second file.
 
 ---
 
-# **6. Generic Output Contract (No Domain Metadata Required)**
+# **7. Generic Output Contract (No Domain Metadata Required)**
 
 The generic API/CLI reports each top relaxation with:
 
 * Fully-qualified Pyomo constraint name (`constraint_name`)
 * Constraint index (`index`)
-* Deviation magnitude (`deviation`)
+* Violation amount (`violation_amount`)
 * Violation cost (`cost`)
-* Direction hint (`direction`)
-
-Direction is structural (derived from bounds), not domain-specific:
-
-* Upper-bound constraints (`<=`): `relax upper bound by +<deviation>`
-* Lower-bound constraints (`>=`): `relax lower bound by -<deviation>`
-* Equalities (`==`): `relax by ±<deviation>`
+* Structural sense/bound metadata (`sense`, `bound`)
+* Optional derived margin amount (`margin_amount`)
 
 This keeps output concise and interpretable even when only model structure is known.
 
 ---
 
-# **7. What Needs Domain Metadata**
+# **8. What Needs Domain Metadata**
 
 To make reports business-friendly, domain metadata can be layered on top:
 

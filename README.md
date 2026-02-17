@@ -79,6 +79,7 @@ It is also about measuring.
 ## Elastic Tool — Structural Diagnosis
 
 The Elastic Tool transforms infeasible or tightly constrained models into measurable systems.
+Terminology: violation vs margin (and why Elastic uses aux variables internally) -> [docs/elastic/ELASTIC_TOOL_GENERIC.md](docs/elastic/ELASTIC_TOOL_GENERIC.md)
 
 Instead of stopping at `infeasible`, it answers:
 
