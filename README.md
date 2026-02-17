@@ -88,7 +88,7 @@ Instead of stopping at `infeasible`, it answers:
 ```mermaid
 flowchart LR
     A["Original Model<br/>Hard Constraints"] --> B["Elastic Transformation"]
-    B --> C["Deviation Variables Added"]
+    B --> C["Violation Variables Added"]
     B --> D["Penalty Terms Added"]
     C --> E["Always-Feasible Model"]
     D --> E

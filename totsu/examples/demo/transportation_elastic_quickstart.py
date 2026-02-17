@@ -240,7 +240,7 @@ def main() -> None:
 
     # Elasticize supply and demand constraints only.
     # - supply: allow 'excess' beyond supply
-    # - demand: allow 'slack' below demand
+    # - demand: allow lower-bound violation where demand is not fully met
     penalty_map = {
         "supply_con": 1.0,
         "demand_con": 1.0,
@@ -268,7 +268,7 @@ def main() -> None:
     # If we combine original objective, scale violation penalties.
     # (This keeps the example simple and makes the effect of --penalty visible.)
     if objective_mode == "original_plus_violation":
-        # Multiply all deviation penalties by args.penalty
+        # Multiply all violation penalties by args.penalty
         for dev in result.deviations:
             dev.penalty *= float(args.penalty)
 
