@@ -25,7 +25,7 @@ Public-facing outputs and docs should use:
 * **margin**: non-negative satisfied-side slack (feasible-side headroom)
 * **residual** (optional/internal): signed structural difference
 
-For a constraint with body `a·x` and bound/right-hand side `b`:
+For a constraint with body `a·x` and bound/right-hand side `b`, this document uses the unified residual convention `residual(x) = rhs - body`.
 
 ## LE constraint: `a·x <= b`
 
@@ -37,13 +37,13 @@ For a constraint with body `a·x` and bound/right-hand side `b`:
 
 * `violation(x) = max(0, b - a·x)`
 * `margin(x) = max(0, a·x - b)`
-* `residual(x) = a·x - b`
+* `residual(x) = b - a·x`
 
 ## EQ constraint: `a·x = b`
 
 * `violation(x) = |a·x - b|`
 * `margin(x)`: not directionally defined for equality; use `None` in public reports (or `0` only when a numeric placeholder is required)
-* `residual(x) = b - a·x` (this document uses `rhs - body` sign convention for equalities)
+* `residual(x) = b - a·x` (follows the same `rhs - body` convention)
 
 Terminology note:
 
@@ -105,6 +105,7 @@ The tool does not interpret *what the constraint means* - only its algebraic for
 ### Why Elastic has aux variables
 
 The aux variable is a modeling artifact used to convert inequalities to equalities while keeping violation variables one-sided and non-negative.
+`aux` does not represent satisfied-side headroom (margin); it is purely an algebraic balancing artifact.
 
 * `aux` is internal and unpenalized.
 * `viol*` variables are penalized and reported as violations.
