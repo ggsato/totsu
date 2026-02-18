@@ -176,15 +176,24 @@ It is also about understanding how systems bend before they break.
 
 MILP models often suffer from combinatorial explosion.
 
+Totsu does not treat integer constraints as merely rules to enforce.
+
+Instead, it treats them as indicators of structural rigidity.
+
 Totsu provides tools to:
 
-* Inspect branch-and-bound dynamics
-* Understand degeneracy and pivot behavior
-* Visualize constraint tightness
-* Debug large-scale combinatorial structures
+* Measure how close LP relaxation solutions are to integrality
+* Visualize fractional variable distributions
+* Anticipate branch-and-bound difficulty before solving fully
+* Inspect where structural hardness emerges
 
 The goal is not only to solve MILPs faster —
-but to understand why a formulation behaves the way it does.
+but to measure how much structural “hardening” integer constraints introduce.
+
+Integer variables are not just decisions.
+They are boundaries.
+
+Totsu visualizes the distance to those boundaries.
 
 ---
 
