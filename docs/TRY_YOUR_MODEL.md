@@ -42,6 +42,8 @@ Set `default_penalty` large enough so violations are not cheaper than normal ope
 - `solver_name`: which solver was used (`auto` picks the first available in order `highs -> cbc -> glpk`).
 - `is_feasible_original`: whether your original model solved as feasible.
 - `is_feasible_elastic`: whether the elasticized model solved after allowing controlled relaxations.
+- `original_results`: raw Pyomo solver results for the original model solve.
+- `elastic_solve_results`: raw Pyomo solver results for the elasticized solve (`None` when original is feasible).
 - `top_relaxations`: highest-impact relaxations with `constraint_name`, `index`, `deviation`, `cost`, and `direction`.
   - `direction` is generic guidance based on constraint type:
   - upper bound: `relax upper bound by +...`

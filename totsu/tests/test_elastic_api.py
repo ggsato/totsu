@@ -44,6 +44,8 @@ def test_analyze_infeasibility_runs_elastic_and_returns_top_relaxations(monkeypa
     assert result.solver_name == "highs"
     assert result.is_feasible_original is False
     assert result.is_feasible_elastic is True
+    assert result.original_results is not None
+    assert result.elastic_solve_results is not None
     assert len(result.top_relaxations) == 1
     assert "constraint_name" in result.top_relaxations[0]
     assert "cost" in result.top_relaxations[0]
@@ -53,6 +55,8 @@ def test_analyze_infeasibility_runs_elastic_and_returns_top_relaxations(monkeypa
     as_dict = result.to_dict()
     assert as_dict["is_feasible_original"] is False
     assert as_dict["is_feasible_elastic"] is True
+    assert as_dict["original_results"] is result.original_results
+    assert as_dict["elastic_solve_results"] is result.elastic_solve_results
 
 
 def test_analyze_infeasibility_respects_default_penalty(monkeypatch):

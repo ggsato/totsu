@@ -58,6 +58,8 @@ class AnalysisResult:
     solver_name: str
     is_feasible_original: bool
     is_feasible_elastic: Optional[bool]
+    original_results: object
+    elastic_solve_results: Optional[object]
     top_relaxations: List[Dict]
     margin_summary: List[Dict]
 
@@ -96,6 +98,8 @@ class AnalysisResult:
             "solver_name": self.solver_name,
             "is_feasible_original": self.is_feasible_original,
             "is_feasible_elastic": self.is_feasible_elastic,
+            "original_results": self.original_results,
+            "elastic_solve_results": self.elastic_solve_results,
             "top_relaxations": list(self.top_relaxations),
             "margin_summary": list(self.margin_summary),
         }
@@ -128,6 +132,8 @@ def analyze_infeasibility(
             solver_name=solver_name,
             is_feasible_original=True,
             is_feasible_elastic=None,
+            original_results=original_results,
+            elastic_solve_results=None,
             top_relaxations=[],
             margin_summary=[],
         )
@@ -158,6 +164,8 @@ def analyze_infeasibility(
         solver_name=solver_name,
         is_feasible_original=False,
         is_feasible_elastic=is_feasible_elastic,
+        original_results=original_results,
+        elastic_solve_results=elastic_solve_results,
         top_relaxations=_decorate_top_relaxations(
             elastic_result,
             max_items=max_items,
