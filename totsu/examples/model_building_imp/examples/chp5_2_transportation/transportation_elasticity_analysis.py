@@ -1,6 +1,11 @@
 import argparse
 
-from .transportation import create_model, capacities, requirements
+from .transportation import (
+    create_model,
+    capacities,
+    requirements,
+    print_results_from_model,
+)
 from .....utils.elastic_feasibility_tool import ElasticFeasibilityTool
 from totsu.core.super_simplex_solver import SuperSimplexSolver, InfeasibleProblemError
 from pyomo.environ import Objective, SolverFactory
@@ -82,16 +87,34 @@ def main():
     print("solving the original model (infeasible)")
     try:
         res = _solve_with_selected_solver(args.solver, solver, model, "solver_original.log")
+        print("=== Original Model Shipment Table ===")
+        if args.solver == "super_simplex":
+            print_results_from_model(
+                model,
+                objective_value=solver.get_current_objective_value(),
+            )
+        else:
+            print_results_from_model(model)
         if args.solver == "super_simplex":
             print(f"original solve variable count: {len(res)}")
     except InfeasibleProblemError as ex:
         print("Original model infeasible (expected for this scenario):", str(ex))
+        print("=== Original Model Shipment Table ===")
+        print_results_from_model(model)
     except Exception as ex:
         print("An error occurred while solving the original model:", str(ex))
 
     print("solving the elastic model with objective_mode='violation_only'")
     try:
         _solve_with_selected_solver(args.solver, solver, elastic_model, "solver.log")
+        print("=== Elastic Model Shipment Table (violation_only) ===")
+        if args.solver == "super_simplex":
+            print_results_from_model(
+                elastic_model,
+                objective_value=solver.get_current_objective_value(),
+            )
+        else:
+            print_results_from_model(elastic_model)
         # 供給合計
         total_shipped = sum(
             (elastic_model.x[s, t].value or 0.0)
@@ -146,6 +169,14 @@ def main():
         _solve_with_selected_solver(
             args.solver, solver, elastic_model_plus, "solver_original_plus.log"
         )
+        print("=== Elastic Model Shipment Table (original_plus_violation) ===")
+        if args.solver == "super_simplex":
+            print_results_from_model(
+                elastic_model_plus,
+                objective_value=solver.get_current_objective_value(),
+            )
+        else:
+            print_results_from_model(elastic_model_plus)
         ElasticFeasibilityTool.populate_violation_summary(
             result_plus, tol=1e-8, include_variable_contributions=True
         )

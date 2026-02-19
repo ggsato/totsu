@@ -1,5 +1,5 @@
 from totsu.elastic import analyze_infeasibility
-from .transportation import create_model, capacities, requirements
+from .transportation import create_model, capacities, requirements, print_results_from_model
 
 
 def _build_pretty_name(model):
@@ -31,6 +31,10 @@ def main():
     analysis_result = analyze_infeasibility(model, pretty_name=pretty_name)
 
     # 3) Print the results
+    print("=== Original Model Shipment Table ===")
+    print_results_from_model(model)
+    print("=== Elastic Model Shipment Table (violation_only) ===")
+    print_results_from_model(analysis_result.elastic_model)
     analysis_result.print_summary()
 
     # 4) Analyze the infeasibility(with the original objective included in the elastic formulation)
@@ -44,6 +48,10 @@ def main():
     )
 
     # 5) Print the results(with the original objective included in the elastic formulation)
+    print("=== Original Model Shipment Table ===")
+    print_results_from_model(model)
+    print("=== Elastic Model Shipment Table (original_plus_violation) ===")
+    print_results_from_model(analysis_result.elastic_model)
     analysis_result.print_summary()
 
 if __name__ == "__main__":
